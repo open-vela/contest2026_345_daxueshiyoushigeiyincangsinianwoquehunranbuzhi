@@ -1,0 +1,49 @@
+
+===== cold boot =====
+uttX-13.0.0
+nsh>
+===== help =====
+help
+help usage:  help [-v] [<cmd>]
+
+    .           cp          exit        ls          reboot      truncate
+    [           cmp         expr        mkdir       rm          uname
+    ?           dirname     false       mkrd        rmdir       umount
+    alias       dd          fdinfo      mount       set         unset
+    unalias     df          free        mv          sleep       uptime
+    basename    dmesg       help        pidof       source      usleep
+    break       echo        hexdump     printf      test        watch
+    cat         env         kill        ps          time        xd
+    cd          exec        pkill       pwd         true        wait
+
+Builtin Apps:
+    dumpstack    hello        nsh          sh
+nsh>
+===== uname -a =====
+uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>
+===== free =====
+free
+      total       used       free    maxused    maxfree  nused  nfree name
+     494296       6912     487384       7272     487384     31      1 Umem
+nsh>
+===== ps =====
+ps
+  PID GROUP PRI POLICY   TYPE    NPX STATE    EVENT     SIGMASK            STACK COMMAND
+    0     0   0 FIFO     Kthread   - Ready              0000000000000000 0002016 CPU0 IDLE
+    1     1 100 RR       Task      - Running            0000000000000000 0001984 nsh_main
+nsh>
+===== hello =====
+hello
+Hello, World!!
+nsh>
+===== ls /dev =====
+ls /dev
+/dev:
+ console
+ null
+ random
+ ttyACM0
+ zero
+nsh>

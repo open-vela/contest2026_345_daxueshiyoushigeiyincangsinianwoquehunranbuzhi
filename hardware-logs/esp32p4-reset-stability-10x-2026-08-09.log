@@ -1,0 +1,60 @@
+
+===== reset cycle 1 =====
+uttX-13.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 1: PASS
+
+===== reset cycle 2 =====
+NuttX-13.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 2: PASS
+
+===== reset cycle 3 =====
+tX-13.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 3: PASS
+
+===== reset cycle 4 =====
+ NuttX-13.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 4: PASS
+
+===== reset cycle 5 =====
+.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 5: PASS
+
+===== reset cycle 6 =====
+X-13.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 6: PASS
+
+===== reset cycle 7 =====
+13.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 7: PASS
+
+===== reset cycle 8 =====
+3.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 8: PASS
+
+===== reset cycle 9 =====
+tX-13.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 9: PASS
+
+===== reset cycle 10 =====
+X-13.0.0
+nsh>uname -a
+NuttX 13.0.0 dd92bcf4257-dirty Aug  9 2026 22:11:17 risc-v esp32p4x-function-ev-board
+nsh>cycle 10: PASS

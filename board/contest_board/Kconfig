@@ -1,11 +1,11 @@
 #
-# Contest 2026 team 000 board placeholder
+# Contest 2026 team 345 ESP32-P4X Function EV Board
 #
 
-if ARCH_BOARD_CONTEST2026_000_BOARD
+if ARCH_CHIP_ESP32P4
 
-config ARCH_BOARD_CONTEST2026_000_BOARD_TAG
-	string "Board tag"
-	default "contest2026_000_board"
+config CONTEST2026_345_BOARD_TAG
+	string
+	default "esp32p4x-function-ev-board"
 
 endif
