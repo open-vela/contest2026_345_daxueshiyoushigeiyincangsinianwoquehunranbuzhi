@@ -1,4 +1,4 @@
-# Contest 2026 team 000 board placeholder
-if(CONFIG_ARCH_BOARD_CONTEST2026_000_BOARD)
+# Contest 2026 team 345 ESP32-P4X Function EV Board
+if(CONFIG_ARCH_CHIP_ESP32P4)
   add_subdirectory(src)
 endif()
