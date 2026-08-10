@@ -1,0 +1,7 @@
+interface:
+  display_name: "OpenVela ESP32-P4 Hardware Porting"
+  short_description: "Evidence-led ESP32-P4 board and SoC porting"
+  default_prompt: "Use $openvela-esp32p4-porting to inspect the local hardware documents before implementing or reviewing ESP32-P4 pins, peripherals, or registers."
+
+policy:
+  allow_implicit_invocation: true

@@ -12,5 +12,8 @@
     <linkfile src="app/hello_app" dest="packages/demos/contest2026_345_hello_app"/>
     <linkfile src="quickapp/hello_quickapp" dest="packages/apps/contest2026_345_hello_quickapp"/>
     <linkfile src="board/contest_board" dest="vendor/openvela/boards/contest2026_345_board"/>
+    <linkfile src="ai/skills/openvela-esp32p4-porting" dest=".agents/skills/openvela-esp32p4-porting"/>
+    <linkfile src="ai/skills/openvela-esp32p4-porting" dest=".cline/skills/openvela-esp32p4-porting"/>
+    <linkfile src="ai/integrations/cline/openvela-esp32p4.md" dest=".clinerules/openvela-esp32p4.md"/>
   </project>
 </manifest>
