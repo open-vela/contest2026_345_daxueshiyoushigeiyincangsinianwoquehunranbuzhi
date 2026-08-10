@@ -422,8 +422,48 @@ esptool.exe -c esp32p4 -p COM3 -b 921600 write-flash \
 
 循环日志：[esp32p4-reset-stability-10x-2026-08-09.log](hardware-logs/esp32p4-reset-stability-10x-2026-08-09.log)，SHA-256 `4280174843fe97e146053892a97e9ba1392bd09c5a08f62ffa8e693b82e37b65`。
 
+### 11.4 GPIO 阶段（编译通过，硬件待测）
+
+GPIO 阶段没有照搬参考实现中的 GPIO1。2.0 板原理图表明 GPIO0/1
+默认通过 R61/R59 连接 32.768 kHz 晶振，通往 J1 的 R199/R197 标为 NC；
+GPIO7/8 也分别通过 0 Ω 电阻连接板载共享 I2C SCL/SDA，不能用跳线短接。
+因此改用原理图确认只接 J1 排针的 GPIO20/21：
+
+| 设备 | 板级引脚 | J1 | 用途 |
+| --- | ---: | ---: | --- |
+| `/dev/gpio0` | GPIO20 | pin 13 | 推挽输出 |
+| `/dev/gpio1` | GPIO21 | pin 11 | 下拉输入，与 GPIO20 跳线回环 |
+| `/dev/gpio2` | GPIO35 | BOOT | 上拉、下降沿按键中断 |
+
+配置已启用 `CONFIG_DEV_GPIO`、`CONFIG_ESPRESSIF_GPIO_IRQ` 和
+`CONFIG_EXAMPLES_GPIO`。2026-08-11 的 Make 构建、链接和镜像生成通过：
+
+| 产物 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `nuttx` | 393876 bytes | `273d9cf094fd887996cfc1008c42dad1be6e2eddd05b613cc7a968284ab0ae75` |
+| `nuttx.hex` | 403618 bytes | `023e18d4b4106968286bddafe35107467771b32b208fd064e90890ecd6977a3e` |
+| `nuttx.bin` | 228172 bytes | `4928bbc7b0886163fd191cf3bb94c21b88923ad00f3319170c3d6b43ddbfb6cf` |
+
+`esptool image-info` 将 `nuttx.bin` 识别为 ESP32-P4、4 MiB、DIO、
+80 MHz 镜像，入口为 `0x4ff44638`，checksum `0x3e` 有效。
+
+硬件回环验收步骤：
+
+```text
+# 断电后用杜邦线连接 J1 pin 13 (GPIO20) 与 J1 pin 11 (GPIO21)
+gpio -o 0 /dev/gpio0
+gpio /dev/gpio1              # 期望 Value=0
+gpio -o 1 /dev/gpio0
+gpio /dev/gpio1              # 期望 Value=1
+gpio /dev/gpio2              # 5 秒内按 BOOT，期望 poll 返回
+```
+
+当前 Codex/WSL 和 Windows 枚举均未发现串口，所以上述用例仍标记为
+**硬件待测**，不能将“编译通过”写成“GPIO 验收通过”。
+
 ## 12. 下一最小步骤
 
-1. review 当前 SoC 公共层与团队板级改动，将它们拆分为可审查提交，并把最终 SoC commit SHA 写回团队板记录。
-2. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，不阻塞本次最小 USB NSH 闭环。
-3. 在保持最小配置回归通过的前提下，再选择下一个外设里程碑；当前不要同时启用 PSRAM、LCD、Camera、Audio 或 Ethernet。
+1. 连接开发板并完成 GPIO20→GPIO21 回环、BOOT 中断及复位回归，将串口日志落到 `hardware-logs/`。
+2. GPIO 硬件门禁通过后，将公共层和板级层分别形成可审查 commit；公共层追加到 NuttX PR #340，板级层在专属仓独立 PR 并自行合入。
+3. 按 I2C、SPI 的顺序各自完成“依赖差异→最小实现→构建→硬件证据→独立 commit”，不要把三个外设压成一个大提交。
+4. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，不阻塞本次 GPIO 闭环。
