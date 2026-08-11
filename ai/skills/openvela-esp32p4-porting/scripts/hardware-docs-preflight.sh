@@ -6,7 +6,7 @@ doc_root=${1:-'/home/uleemos/pdf & md/esp32_P4'}
 status=0
 
 required_docs=(
-  'ESP32_P4X_C5_Function_EV_board-2.0-schematics.pdf'
+  'SCH_ESP32-P4X_FUNCTION_EV_BOARD_V1.8_20260805.pdf'
   'esp32-p4_datasheet_cn.pdf'
   'esp32-p4_technical_reference_manual_cn.pdf'
   'esp-chip-errata-zh_CN-master-esp32p4.pdf'
