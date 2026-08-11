@@ -2,7 +2,10 @@ ESP32-P4 GPIO hardware smoke test
 =================================
 
 Test time: 2026-08-11T22:06:19+08:00
-Board: ESP32-P4X/C5 Function EV Board 2.0
+Board: ESP32-P4X Function EV Board V1.8 (ESP32-C6-MINI-1)
+Schematic: SCH_ESP32-P4X_FUNCTION_EV_BOARD_V1.8_20260805.pdf
+Metadata correction: 2026-08-12 schematic audit corrected the former C5/V2.0
+board label; flash and serial test output below is unchanged.
 Port: COM3 (USB VID_303A&PID_1001&MI_00)
 Chip: ESP32-P4 revision v3.2
 MAC: e8:f6:0a:e3:a6:5e

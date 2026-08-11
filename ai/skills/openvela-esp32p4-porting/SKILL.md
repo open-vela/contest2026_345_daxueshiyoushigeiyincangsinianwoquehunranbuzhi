@@ -1,6 +1,6 @@
 ---
 name: openvela-esp32p4-porting
-description: Port, build, debug, and review openvela/NuttX support for the ESP32-P4 SoC and ESP32-P4X/C5 Function EV Board. Use for ESP32-P4 BSP work, board pins and connectors, pinmux or strapping, register-level development, clocks and interrupts, peripheral drivers, RISC-V architecture code, Espressif common-layer backports, board initialization, Kconfig/defconfig, linker and image generation, UART/NSH bring-up, build failures, hardware smoke tests, or PR preparation in the openvela contest workspace. Do not use for unrelated ESP-IDF applications or non-P4 boards.
+description: Port, build, debug, and review openvela/NuttX support for the ESP32-P4 SoC and the ESP32-P4X Function EV Board V1.8 fitted with an ESP32-C6-MINI-1 wireless module. Use for ESP32-P4 BSP work, board pins and connectors, pinmux or strapping, register-level development, clocks and interrupts, peripheral drivers, RISC-V architecture code, Espressif common-layer backports, board initialization, Kconfig/defconfig, linker and image generation, UART/NSH bring-up, build failures, hardware smoke tests, or PR preparation in the openvela contest workspace. Do not use for unrelated ESP-IDF applications or non-P4 boards.
 ---
 
 # Port openvela to ESP32-P4
@@ -20,8 +20,9 @@ scripts/hardware-docs-preflight.sh
 
 Do this before choosing pins, copying a reference driver, or editing code.
 Use the exact board schematic first, then the SoC datasheet, technical
-reference manual, and errata. Do not substitute a similarly named Function
-EV Board revision for the local ESP32-P4X-C5 board.
+reference manual, and errata. The local target is the ESP32-P4X Function EV
+Board V1.8 fitted with an ESP32-C6-MINI-1. Do not substitute the older C5
+V2.0 schematic or another similarly named Function EV Board revision.
 
 Record the following evidence in the task notes or review:
 
