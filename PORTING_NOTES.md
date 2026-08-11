@@ -4,6 +4,12 @@
 
 本文记录 Apache NuttX ESP32-P4 支持与比赛 openvela 基线之间的依赖和差异，作为后续增量移植的依据。
 
+当前实板的唯一板级基准为 `ESP32-P4X_FUNCTION_EV_BOARD` V1.8
+（2026-08-05），板载无线模块 U1 是 `ESP32-C6-MINI-1`。对应原理图为
+`SCH_ESP32-P4X_FUNCTION_EV_BOARD_V1.8_20260805.pdf`，SHA-256
+`a87457fdcc4c8b3b3b5461603ce87a82b2ce9e99d851e4e615d4f5732aa649a5`。
+此前使用的 C5 V2.0 原理图不再作为本项目的板级证据。
+
 当前阶段已在依赖分析基础上完成最小 P4 USB NSH 构建：
 
 - 不复制 Apache 整个目录。
@@ -424,10 +430,10 @@ esptool.exe -c esp32p4 -p COM3 -b 921600 write-flash \
 
 ### 11.4 GPIO 阶段（构建和硬件验证通过）
 
-GPIO 阶段没有照搬参考实现中的 GPIO1。2.0 板原理图表明 GPIO0/1
+GPIO 阶段没有照搬参考实现中的 GPIO1。V1.8 板原理图表明 GPIO0/1
 默认通过 R61/R59 连接 32.768 kHz 晶振，通往 J1 的 R199/R197 标为 NC；
 GPIO7/8 也分别通过 0 Ω 电阻连接板载共享 I2C SCL/SDA，不能用跳线短接。
-因此改用原理图确认只接 J1 排针的 GPIO20/21：
+因此改用原理图确认通过 R33/R39 只接 J1 排针的 GPIO20/21：
 
 | 设备 | 板级引脚 | J1 | 用途 |
 | --- | ---: | ---: | --- |
@@ -468,11 +474,83 @@ gpio /dev/gpio2              # 按下并松开 BOOT，期望 poll 返回
 为低电平后，GPIO35 的阻塞 poll 被一次物理 BOOT 按键下降沿唤醒并返回。
 
 完整日志：[esp32p4-gpio-smoke-2026-08-11.log](hardware-logs/esp32p4-gpio-smoke-2026-08-11.log)，
-SHA-256 `2c344393966f6f4a3658f934e9d5acf69f28ab4d9d8ec14eb588e4b024d1490f`。
+SHA-256 `c575f5e5c3b3dc8a557cd613fabd93ab6b38c3b9cd53b47e88d15cc627b67d41`。
+该文件在 2026-08-12 仅纠正了板型元数据，原始烧录与串口输出未改。
+
+### 11.5 I2C/ES8311 阶段（构建和硬件验证通过）
+
+主板 V1.8 原理图确认 GPIO7 经 R194（0 Ω）连接 `ESP_I2C_SDA`，GPIO8
+经 R190（0 Ω）连接 `ESP_I2C_SCL`；同一总线经 R62/R52（0 Ω）连接
+板载 ES8311，也路由至 CSI/DSI 连接器。主板没有独立的低阻值上拉，当前
+驱动将两脚配置为开漏输出并启用 ESP32-P4 内部弱上拉。
+
+首次硬件诊断出现 NACK 中断位 `0x400`。对构建配置复核后发现活动
+`.config` 仍使用 Kconfig 默认 GPIO6/GPIO5，而不是板级 defconfig 中的
+GPIO8/GPIO7。强制清除旧配置并重新生成后，活动配置固定为：
+
+```text
+CONFIG_ESPRESSIF_I2C0=y
+CONFIG_ESPRESSIF_I2C0_SCLPIN=8
+CONFIG_ESPRESSIF_I2C0_SDAPIN=7
+# CONFIG_I2C_POLLED is not set
+```
+
+正常中断模式固件完成编译、链接和镜像生成，构建产物为：
+
+| 产物 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `nuttx` | 405204 bytes | `369f4ee37723542d5872f1822019215aa96ffb0addfd554617bd668e8bdd130a` |
+| `nuttx.hex` | 433997 bytes | `3ead75859d5253db7a8ab11eb30a58927627a30455b6b9d05ce1588a55729edd` |
+| `nuttx.bin` | 236280 bytes | `123ffbfd0ea2f1ae121c1a90ef61daeb965ecb2b05faa6ea75d93528230ae2f0` |
+
+`nuttx.bin` 通过 Windows esptool 5.3.1 写入 ESP32-P4 revision v3.2 的
+`0x2000`，写后 hash 校验通过。未连接 Camera/LCD 子板，也未安装外部
+I2C 上拉电阻。最终硬件结果：
+
+| 检查 | 结果 |
+| --- | --- |
+| `/dev/i2c0`、Bus 0 | 注册成功 |
+| ES8311 地址 | `0x18` ACK |
+| ES8311 ID | `FD=0x83`、`FE=0x11`、`FF=0x01` |
+| 10 kHz repeated-start read | PASS |
+| 100 kHz repeated-start read | PASS |
+| 100 kHz separate-transfer read | PASS |
+
+因此当前板载 ES8311 bring-up 不需要 Camera 子板或额外上拉；Camera/SC2336
+留作后续 CSI 阶段的独立目标，不用来替代本次 I2C 验收。
+
+完整日志：[esp32p4-i2c-es8311-smoke-2026-08-12.log](hardware-logs/esp32p4-i2c-es8311-smoke-2026-08-12.log)，
+SHA-256 `3ee5114e6c1933c611c77748984d0d43ad17370158f0232406a0503044a8c68f`。
+该文件在提交前纠正了板型元数据，原始烧录与串口输出未改。
+
+### 11.6 C6 V1.8 原理图纠偏审计
+
+2026-08-12 在提交 I2C 阶段改动前，以 V1.8 原理图 6 个 sheet 重新审计
+已经实现的板级配置。GPIO7/8、GPIO20/21、GPIO35、J1 针脚和 ES8311
+总线连接与实测配置一致，因此无需修改 GPIO/I2C 代码或 defconfig。
+技能中原先引用的 C5 V2.0 原理图已经替换；其中 GPIO20/21 串联电阻位号
+也由错误的 R40/R33 修正为 V1.8 的 R33/R39，BOOT 网络名由旧记录的
+`ESP_BOOT` 修正为 `GPIO35_BOOTMODE`。GPIO35 还经 R135 连接
+`RMII_TXD1`；当前 GPIO 按键测试在 Ethernet 未启用时有效，后续 Ethernet
+阶段必须取消或隔离该 GPIO 中断设备。
+
+C6 后续开发必须使用 V1.8 sheet 5：U1 为 `ESP32-C6-MINI-1`，P4
+GPIO14–19 连接 `SD2_D0–D3/CLK/CMD`，GPIO54 为 `C6_EN`，GPIO6 为
+`C6_WAKEUP`。这些资源在 SPI、SD、无线协处理器阶段不能作为空闲 GPIO
+重复分配。
+
+纠偏后使用同一 I2C 源码和 defconfig 重新构建成功；`nuttx`、`nuttx.hex`
+和 `nuttx.bin` 分别为 405204、433997 和 236280 bytes，SHA-256 分别为
+`c877a0afbffce8fd827faa964acd713cfcf5232199a8b4482b7e359a639818d3`、
+`864aca0016b82f0f3eb7143f69fcc4ac55bfe535fb219226cc1c773cc2a6cee2`、
+`629cbf790eb3b39e4078d0d9086995bd577e87087852c2be9c03087b35cdf6aa`。
+本次审计未改变可执行代码或配置；新镜像因构建时间变化未重复烧录，硬件
+验收仍对应 11.5 中已经写入同一块 V1.8/C6 实板的镜像及原始串口记录。
 
 ## 12. 下一最小步骤
 
-1. 将本次 GPIO 硬件日志和移植记录形成专属仓后续 commit，并更新对应 PR 的 Testing 证据。
-2. 公共 GPIO commit 已追加到 NuttX PR #340；板级 GPIO commit 已推送到专属仓 fork 分支，后续在专属仓独立 PR 合入。
-3. 按 I2C、SPI 的顺序各自完成“依赖差异→最小实现→构建→硬件证据→独立 commit”，不要把三个外设压成一个大提交。
-4. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，不阻塞后续外设开发。
+1. 将本次公共 I2C 驱动改动形成 NuttX PR #340 的后续独立 commit。
+2. 将板级 I2C 注册、defconfig、硬件日志和移植记录形成专属仓独立 commit/PR。
+3. 开始 SPI 阶段的“依赖差异→最小实现→构建→硬件证据”，不要和 I2C 压成一个提交。
+4. Camera/SC2336 和 LCD/GT911 共用 GPIO7/8，但分别留到 CSI 和显示/触摸阶段验证。
+5. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，不阻塞后续外设开发。

@@ -1,0 +1,68 @@
+ESP32-P4X Function EV Board V1.8 I2C smoke test
+Date: 2026-08-12 (Asia/Shanghai)
+Board: ESP32-P4 revision v3.2 with ESP32-C6-MINI-1
+Schematic: SCH_ESP32-P4X_FUNCTION_EV_BOARD_V1.8_20260805.pdf
+Metadata correction: the former C5 board label was corrected before commit;
+flash and serial test output below is unchanged.
+Console: Windows COM3, USB Serial/JTAG, 115200 baud
+NuttX base: b9f8442fa73-dirty
+Configuration: I2C0, SDA=GPIO7, SCL=GPIO8, interrupt mode
+Image address: 0x2000
+Flash: 4 MiB, DIO, 80 MHz
+nuttx.bin SHA-256: 123ffbfd0ea2f1ae121c1a90ef61daeb965ecb2b05faa6ea75d93528230ae2f0
+Flash verification: PASS (esptool hash verified)
+
+===== BOOT AND DEVICE REGISTRATION =====
+
+nsh> uname -a
+NuttX 13.0.0 b9f8442fa73-dirty Aug 12 2026 00:12:21 risc-v esp32p4x-function-ev-board
+
+nsh> ls /dev
+/dev:
+ console
+ gpio0
+ gpio1
+ gpio2
+ i2c0
+ null
+ random
+ ttyACM0
+ zero
+
+nsh> i2c bus
+ BUS   EXISTS?
+Bus 0: YES
+
+===== ES8311 SEPARATE-TRANSFER READS, 100 KHZ =====
+
+nsh> i2c get -b0 -a18 -f100000 -rfd -s
+READ Bus: 0 Addr: 18 Subaddr: fd Value: 83
+
+nsh> i2c get -b0 -a18 -f100000 -rfe -s
+READ Bus: 0 Addr: 18 Subaddr: fe Value: 11
+
+nsh> i2c get -b0 -a18 -f100000 -rff -s
+READ Bus: 0 Addr: 18 Subaddr: ff Value: 01
+
+===== ES8311 REPEATED-START READS =====
+
+nsh> i2c get -b0 -a18 -f10000 -rfd
+READ Bus: 0 Addr: 18 Subaddr: fd Value: 83
+
+nsh> i2c get -b0 -a18 -f100000 -rfd
+READ Bus: 0 Addr: 18 Subaddr: fd Value: 83
+
+===== RESULT =====
+
+PASS NSH boot and command prompt
+PASS /dev/i2c0 registration
+PASS I2C bus 0 registration
+PASS ES8311 address 0x18 ACK
+PASS ES8311 ID registers FD/FE = 83/11
+PASS ES8311 version register FF = 01
+PASS 10 kHz repeated-start transaction
+PASS 100 kHz repeated-start transaction
+
+No Camera or LCD subboard was connected.  No external I2C pull-up resistor
+was installed.  The ESP32-P4 internal GPIO pull-ups were sufficient for the
+onboard ES8311 at the tested rates.

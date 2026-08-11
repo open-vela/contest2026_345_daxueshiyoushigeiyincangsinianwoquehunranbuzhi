@@ -12,4 +12,8 @@ CSRCS += board_gpio.c
 endif
 endif
 
+ifeq ($(CONFIG_ESPRESSIF_I2C0),y)
+CSRCS += board_i2c.c
+endif
+
 include $(TOPDIR)/boards/Board.mk
