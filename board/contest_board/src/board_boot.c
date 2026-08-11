@@ -9,6 +9,7 @@
 #include <nuttx/fs/fs.h>
 
 #include "board_gpio.h"
+#include "board_i2c.h"
 
 void esp_board_initialize(void)
 {
@@ -24,6 +25,14 @@ int board_app_initialize(uintptr_t arg)
 
 #if defined(CONFIG_DEV_GPIO) && !defined(CONFIG_GPIO_LOWER_HALF)
   ret = board_gpio_initialize();
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
+#ifdef CONFIG_ESPRESSIF_I2C0
+  ret = board_i2c_initialize();
   if (ret < 0)
     {
       return ret;
