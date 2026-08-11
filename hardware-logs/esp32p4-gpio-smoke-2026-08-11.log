@@ -1,0 +1,88 @@
+ESP32-P4 GPIO hardware smoke test
+=================================
+
+Test time: 2026-08-11T22:06:19+08:00
+Board: ESP32-P4X/C5 Function EV Board 2.0
+Port: COM3 (USB VID_303A&PID_1001&MI_00)
+Chip: ESP32-P4 revision v3.2
+MAC: e8:f6:0a:e3:a6:5e
+NuttX commit: b9f8442fa73b74bcf1d59a56eccf7a0ca512e2fc
+Team-board commit: f3fccc570fed1371862f09782dc3ff520b614393
+Image: nuttx.bin, 228172 bytes
+Image SHA-256: f4c87dcf2c1b34ab22b932c50d7856ac57d380b14b23a5e1adab8d310f61fd91
+Flash offset: 0x2000
+Flash options: 4MB, DIO, 80MHz
+Loopback: J1 pin 13 (GPIO20 output) to J1 pin 11 (GPIO21 input)
+Interrupt source: board BOOT button on GPIO35, falling edge
+
+Flash result
+------------
+
+esptool v5.3.1
+Connected to ESP32-P4 revision v3.2 on COM3.
+Wrote 228172 bytes at 0x00002000.
+Hash of written data verified.
+Hard reset via RTS completed.
+
+Serial session
+--------------
+
+nsh> uname -a
+NuttX 13.0.0 b9f8442fa73 Aug 11 2026 21:56:31 risc-v esp32p4x-function-ev-board
+
+nsh> ls /dev
+/dev:
+ console
+ gpio0
+ gpio1
+ gpio2
+ null
+ random
+ ttyACM0
+ zero
+
+nsh> gpio -o 0 /dev/gpio0
+Driver: /dev/gpio0
+  Output pin:    Value=0
+  Writing:       Value=0
+  Verify:        Value=0
+
+nsh> gpio /dev/gpio1
+Driver: /dev/gpio1
+  Input pin (pull-down):     Value=0
+
+nsh> gpio -o 1 /dev/gpio0
+Driver: /dev/gpio0
+  Output pin:    Value=0
+  Writing:       Value=1
+  Verify:        Value=1
+
+nsh> gpio /dev/gpio1
+Driver: /dev/gpio1
+  Input pin (pull-down):     Value=1
+
+nsh> gpio -o 0 /dev/gpio0
+Driver: /dev/gpio0
+  Output pin:    Value=1
+  Writing:       Value=0
+  Verify:        Value=0
+
+nsh> gpio /dev/gpio2
+Driver: /dev/gpio2
+  Interrupt pin: Value=1
+  Verify:        Value=0
+
+Result
+------
+
+PASS /dev/gpio0 registered as GPIO20 output.
+PASS /dev/gpio1 registered as GPIO21 pull-down input.
+PASS GPIO20 low propagated to GPIO21 as value 0.
+PASS GPIO20 high propagated to GPIO21 as value 1.
+PASS GPIO20 restored to low after the loopback test.
+PASS /dev/gpio2 registered as GPIO35 falling-edge interrupt input.
+PASS BOOT press woke the blocking poll and returned to nsh.
+
+Note: an earlier five-second signal-mode attempt timed out because the BOOT
+button was not pressed inside that short window.  The final blocking poll
+test above remained armed until the physical BOOT press and passed.

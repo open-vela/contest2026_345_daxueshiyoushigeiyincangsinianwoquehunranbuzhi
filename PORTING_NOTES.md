@@ -422,7 +422,7 @@ esptool.exe -c esp32p4 -p COM3 -b 921600 write-flash \
 
 循环日志：[esp32p4-reset-stability-10x-2026-08-09.log](hardware-logs/esp32p4-reset-stability-10x-2026-08-09.log)，SHA-256 `4280174843fe97e146053892a97e9ba1392bd09c5a08f62ffa8e693b82e37b65`。
 
-### 11.4 GPIO 阶段（编译通过，硬件待测）
+### 11.4 GPIO 阶段（构建和硬件验证通过）
 
 GPIO 阶段没有照搬参考实现中的 GPIO1。2.0 板原理图表明 GPIO0/1
 默认通过 R61/R59 连接 32.768 kHz 晶振，通往 J1 的 R199/R197 标为 NC；
@@ -436,13 +436,17 @@ GPIO7/8 也分别通过 0 Ω 电阻连接板载共享 I2C SCL/SDA，不能用跳
 | `/dev/gpio2` | GPIO35 | BOOT | 上拉、下降沿按键中断 |
 
 配置已启用 `CONFIG_DEV_GPIO`、`CONFIG_ESPRESSIF_GPIO_IRQ` 和
-`CONFIG_EXAMPLES_GPIO`。2026-08-11 的 Make 构建、链接和镜像生成通过：
+`CONFIG_EXAMPLES_GPIO`。2026-08-11 在 NuttX commit `b9f8442fa73` 和
+团队板 commit `f3fccc570fe` 上完成干净重链接。WSL 当前 Python 环境缺少
+`esptool` 包，因此 Make 在最终 MKIMAGE 检查处停止；随后使用已安装的
+Windows esptool 5.3.1，按同一构建规则执行 `elf2image --ram-only-header
+-fs 4MB -fm dio -ff 80m` 生成最终镜像：
 
 | 产物 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `nuttx` | 393876 bytes | `273d9cf094fd887996cfc1008c42dad1be6e2eddd05b613cc7a968284ab0ae75` |
-| `nuttx.hex` | 403618 bytes | `023e18d4b4106968286bddafe35107467771b32b208fd064e90890ecd6977a3e` |
-| `nuttx.bin` | 228172 bytes | `4928bbc7b0886163fd191cf3bb94c21b88923ad00f3319170c3d6b43ddbfb6cf` |
+| `nuttx` | 393876 bytes | `b2b373b8942290d19d90337e2d6e96714c5d2adfc6223158a39eb65fd136e012` |
+| `nuttx.hex` | 403610 bytes | `08f20f717aedc64b049162a1ded715acaf7a8fbbbf588b53731e636e7caaafff` |
+| `nuttx.bin` | 228172 bytes | `f4c87dcf2c1b34ab22b932c50d7856ac57d380b14b23a5e1adab8d310f61fd91` |
 
 `esptool image-info` 将 `nuttx.bin` 识别为 ESP32-P4、4 MiB、DIO、
 80 MHz 镜像，入口为 `0x4ff44638`，checksum `0x3e` 有效。
@@ -455,15 +459,20 @@ gpio -o 0 /dev/gpio0
 gpio /dev/gpio1              # 期望 Value=0
 gpio -o 1 /dev/gpio0
 gpio /dev/gpio1              # 期望 Value=1
-gpio /dev/gpio2              # 5 秒内按 BOOT，期望 poll 返回
+gpio /dev/gpio2              # 按下并松开 BOOT，期望 poll 返回
 ```
 
-当前 Codex/WSL 和 Windows 枚举均未发现串口，所以上述用例仍标记为
-**硬件待测**，不能将“编译通过”写成“GPIO 验收通过”。
+镜像通过 Windows COM3 写入地址 `0x2000`，esptool 写后 hash 校验成功。
+串口 `uname -a` 返回 `b9f8442fa73`，并确认 `/dev/gpio0`、`gpio1`、
+`gpio2` 均已注册。GPIO20 输出 0/1 时 GPIO21 分别读取 0/1；恢复 GPIO20
+为低电平后，GPIO35 的阻塞 poll 被一次物理 BOOT 按键下降沿唤醒并返回。
+
+完整日志：[esp32p4-gpio-smoke-2026-08-11.log](hardware-logs/esp32p4-gpio-smoke-2026-08-11.log)，
+SHA-256 `2c344393966f6f4a3658f934e9d5acf69f28ab4d9d8ec14eb588e4b024d1490f`。
 
 ## 12. 下一最小步骤
 
-1. 连接开发板并完成 GPIO20→GPIO21 回环、BOOT 中断及复位回归，将串口日志落到 `hardware-logs/`。
-2. GPIO 硬件门禁通过后，将公共层和板级层分别形成可审查 commit；公共层追加到 NuttX PR #340，板级层在专属仓独立 PR 并自行合入。
+1. 将本次 GPIO 硬件日志和移植记录形成专属仓后续 commit，并更新对应 PR 的 Testing 证据。
+2. 公共 GPIO commit 已追加到 NuttX PR #340；板级 GPIO commit 已推送到专属仓 fork 分支，后续在专属仓独立 PR 合入。
 3. 按 I2C、SPI 的顺序各自完成“依赖差异→最小实现→构建→硬件证据→独立 commit”，不要把三个外设压成一个大提交。
-4. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，不阻塞本次 GPIO 闭环。
+4. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，不阻塞后续外设开发。
