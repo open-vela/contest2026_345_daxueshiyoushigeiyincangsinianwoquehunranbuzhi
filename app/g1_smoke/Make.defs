@@ -1,0 +1,7 @@
+############################################################################
+# Contest 2026 team 345 G1 platform smoke test
+############################################################################
+
+ifneq ($(CONFIG_LVX_USE_DEMO_CONTEST2026_345_G1_SMOKE),)
+CONFIGURED_APPS += $(APPDIR)/packages/demos/contest2026_345_g1_smoke
+endif

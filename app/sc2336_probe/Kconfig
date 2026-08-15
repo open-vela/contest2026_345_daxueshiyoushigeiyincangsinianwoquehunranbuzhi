@@ -1,0 +1,13 @@
+#
+# For a description of the syntax of this configuration file, see the
+# kconfig-language.txt file in the NuttX tools repository.
+#
+
+config LVX_USE_DEMO_CONTEST2026_345_SC2336_PROBE
+	bool "Contest 2026 team 345 SC2336 sensor probe"
+	default n
+	depends on I2C_DRIVER
+	---help---
+		Enable a read-only SCCB probe for the AG638A32M2 camera module's
+		SC2336 sensor.  The probe reads the two chip-ID registers without
+		starting the sensor or the MIPI CSI controller.

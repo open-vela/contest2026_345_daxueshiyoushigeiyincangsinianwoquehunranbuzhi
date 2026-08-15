@@ -1,0 +1,22 @@
+00f00000-0x00ffffff mounted at /data
+
+NuttShell (NSH) NuttX-13.0.0
+nsh>
+===== COMMAND: g1_smoke 2 =====
+g1_smoke 2
+G1 START duration=2 timer_hz=10
+G1 PERSIST PASS sequence=3
+G1 PERSIST WRITE sequence=4
+G1 HEAP START arena=33554432 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=2 timer_signals=20 used=8952 free=33545480 largest=33545480
+G1 TIMER PASS signals=20 elapsed=2030ms
+G1 HEAP PASS cycles=20 used_before=8952 used_after=8952 drift=0
+G1 PASS
+nsh>
+===== COMMAND: sc2336_probe =====
+
+nsh> [Ksc2336_probe
+SC2336 read-only probe address=0x30 frequency=100000
+SC2336 ID PASS address=0x30 id=0xcb3a
+nsh> [K
+n

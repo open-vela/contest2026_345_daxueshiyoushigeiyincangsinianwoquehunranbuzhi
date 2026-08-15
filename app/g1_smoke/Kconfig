@@ -1,0 +1,14 @@
+#
+# For a description of the syntax of this configuration file, see the
+# kconfig-language.txt file in the NuttX tools repository.
+#
+
+config LVX_USE_DEMO_CONTEST2026_345_G1_SMOKE
+	bool "Contest 2026 team 345 G1 platform smoke test"
+	default n
+	depends on FS_PROCFS
+	depends on !DISABLE_POSIX_TIMERS
+	---help---
+		Enable the ESP32-P4 platform stability test.  It checks the
+		monotonic clock, POSIX timer signal delivery, heap allocation and
+		data integrity, and a persistent record on the board storage volume.

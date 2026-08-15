@@ -10,6 +10,8 @@
 
   <project path="contest2026_345_daxueshiyoushigeiyincangsinianwoquehunranbuzhi" name="contest2026_345_daxueshiyoushigeiyincangsinianwoquehunranbuzhi">
     <linkfile src="app/hello_app" dest="packages/demos/contest2026_345_hello_app"/>
+    <linkfile src="app/g1_smoke" dest="packages/demos/contest2026_345_g1_smoke"/>
+    <linkfile src="app/sc2336_probe" dest="packages/demos/contest2026_345_sc2336_probe"/>
     <linkfile src="quickapp/hello_quickapp" dest="packages/apps/contest2026_345_hello_quickapp"/>
     <linkfile src="board/contest_board" dest="vendor/openvela/boards/contest2026_345_board"/>
     <linkfile src="ai/skills/openvela-esp32p4-porting" dest=".agents/skills/openvela-esp32p4-porting"/>

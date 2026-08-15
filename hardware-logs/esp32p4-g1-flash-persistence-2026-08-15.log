@@ -1,0 +1,13 @@
+
+nsh>
+===== COMMAND: g1_smoke 2 =====
+g1_smoke 2
+G1 START duration=2 timer_hz=10
+G1 PERSIST PASS sequence=1
+G1 PERSIST WRITE sequence=2
+G1 HEAP START arena=33554432 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=2 timer_signals=20 used=8952 free=33545480 largest=33545480
+G1 TIMER PASS signals=20 elapsed=2030ms
+G1 HEAP PASS cycles=20 used_before=8952 used_after=8952 drift=0
+G1 PASS
+nsh>
