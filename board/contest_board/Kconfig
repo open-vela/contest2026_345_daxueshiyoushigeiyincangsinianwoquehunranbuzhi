@@ -8,4 +8,27 @@ config CONTEST2026_345_BOARD_TAG
 	string
 	default "esp32p4x-function-ev-board"
 
+config ESPRESSIF_SPIFLASH_AUTO_BRINGUP
+	bool "Automatic mount of SPI Flash MTD"
+	depends on ESPRESSIF_MTD
+	default y
+
+choice ESPRESSIF_SPIFLASH_FS
+	prompt "File system to mount on SPI Flash MTD"
+	default ESPRESSIF_SPIFLASH_SMARTFS
+	depends on ESPRESSIF_SPIFLASH_AUTO_BRINGUP
+	optional
+
+config ESPRESSIF_SPIFLASH_SMARTFS
+	bool "SmartFS"
+	select FS_SMARTFS
+	select MTD_SMART
+
+endchoice # ESPRESSIF_SPIFLASH_FS
+
+config ESPRESSIF_SPIFLASH_FS_MOUNT_PT
+	string "SPI Flash SmartFS mount point"
+	depends on ESPRESSIF_SPIFLASH_SMARTFS
+	default "/data"
+
 endif

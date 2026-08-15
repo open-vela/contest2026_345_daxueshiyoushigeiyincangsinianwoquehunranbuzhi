@@ -10,6 +10,7 @@
 
 #include "board_gpio.h"
 #include "board_i2c.h"
+#include "board_spiflash.h"
 
 void esp_board_initialize(void)
 {
@@ -22,6 +23,14 @@ void esp_board_initialize(void)
 int board_app_initialize(uintptr_t arg)
 {
   int ret;
+
+#ifdef CONFIG_FS_PROCFS
+  ret = nx_mount(NULL, CONFIG_NSH_PROC_MOUNTPOINT, "procfs", 0, NULL);
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
 
 #if defined(CONFIG_DEV_GPIO) && !defined(CONFIG_GPIO_LOWER_HALF)
   ret = board_gpio_initialize();
@@ -39,13 +48,15 @@ int board_app_initialize(uintptr_t arg)
     }
 #endif
 
-#ifdef CONFIG_FS_PROCFS
-  ret = nx_mount(NULL, CONFIG_NSH_PROC_MOUNTPOINT, "procfs", 0, NULL);
+#ifdef CONFIG_ESPRESSIF_SPIFLASH_SMARTFS
+  ret = board_spiflash_initialize();
   if (ret < 0)
     {
       return ret;
     }
-#else
+#endif
+
+#ifndef CONFIG_FS_PROCFS
   ret = 0;
 #endif
 
