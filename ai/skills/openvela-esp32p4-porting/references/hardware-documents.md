@@ -86,6 +86,10 @@ From schematic sheet `03_FLASH_DBG_CNN`, sheet 3 of 6:
   when Ethernet is enabled.
 - The CSI and DSI connectors share `ESP_I2C_SCL` and `ESP_I2C_SDA`; audio on
   sheet 4 uses those same I2C nets.
+- Populated R109 and R98 are 2.2 kΩ pull-ups from `ESP_I2C_SCL` and
+  `ESP_I2C_SDA` to `ESP_3V3`. They are upstream of populated 0 Ω R106/R101
+  into the CSI connector. Do not repeat the earlier conclusion that the V1.8
+  main board has only shunt capacitors and no discrete I2C pull-ups.
 
 From schematic sheet `02_ESP32-P4`, sheet 2 of 6:
 
@@ -102,9 +106,19 @@ From schematic sheet `04_Audio`, sheet 4 of 6:
 
 - `ESP_I2C_SDA`/`ESP_I2C_SCL` connect through populated 0 Ω resistors
   R62/R52 to ES8311 `CDATA`/`CCLK`.
-- The main board shows only 22 pF shunt capacitors C24/C27 on those I2C nets;
-  no populated discrete pull-up resistors are shown. The verified I2C smoke
-  firmware therefore uses open-drain pads and the ESP32-P4 internal pull-ups.
+- C24/C27 are 22 pF shunt capacitors on the audio branch. The shared nets are
+  externally pulled up by R109/R98 on sheet 3; the driver still correctly
+  configures GPIO7/8 as open-drain pads.
+
+From `esp32-p4-function-ev-board-camera-subboard-schematics.pdf`, sheet 1:
+
+- Main-board `ESP_I2C_SCL`/`ESP_I2C_SDA` pass through Q3 `DMN63DLDW-7` to
+  1.8 V `SENSOR_SCL`/`SENSOR_SDA`; populated R20/R23 are 2.2 kΩ sensor-side
+  pull-ups to `DOVDD_1V8`.
+- U1 `ME6211C18` and U2 `ME6211C28` generate 1.8 V and 2.8 V from the main
+  3.3 V rail. Y1 supplies the module's 24 MHz `XVCLK`.
+- The fitted AG638A32M2 module contains SC2336. Its 7-bit SCCB address is
+  0x30; read-only ID registers 0x3107/0x3108 return 0xcb/0x3a.
 
 From schematic sheet `05_Ethernet_SDMMC_WiFi`, sheet 5 of 6:
 

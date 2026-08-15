@@ -481,8 +481,10 @@ SHA-256 `c575f5e5c3b3dc8a557cd613fabd93ab6b38c3b9cd53b47e88d15cc627b67d41`。
 
 主板 V1.8 原理图确认 GPIO7 经 R194（0 Ω）连接 `ESP_I2C_SDA`，GPIO8
 经 R190（0 Ω）连接 `ESP_I2C_SCL`；同一总线经 R62/R52（0 Ω）连接
-板载 ES8311，也路由至 CSI/DSI 连接器。主板没有独立的低阻值上拉，当前
-驱动将两脚配置为开漏输出并启用 ESP32-P4 内部弱上拉。
+板载 ES8311，也路由至 CSI/DSI 连接器。V1.8 主板 sheet 3 的 R109/R98
+分别给 `ESP_I2C_SCL`/`ESP_I2C_SDA` 提供 2.2 kΩ 到 `ESP_3V3` 的外部
+上拉；当前驱动仍按 I2C 要求将两脚配置为开漏输出。早期记录曾漏看这两个
+主板上拉，现已纠正。
 
 首次硬件诊断出现 NACK 中断位 `0x400`。对构建配置复核后发现活动
 `.config` 仍使用 Kconfig 默认 GPIO6/GPIO5，而不是板级 defconfig 中的
@@ -504,8 +506,8 @@ CONFIG_ESPRESSIF_I2C0_SDAPIN=7
 | `nuttx.bin` | 236280 bytes | `123ffbfd0ea2f1ae121c1a90ef61daeb965ecb2b05faa6ea75d93528230ae2f0` |
 
 `nuttx.bin` 通过 Windows esptool 5.3.1 写入 ESP32-P4 revision v3.2 的
-`0x2000`，写后 hash 校验通过。未连接 Camera/LCD 子板，也未安装外部
-I2C 上拉电阻。最终硬件结果：
+`0x2000`，写后 hash 校验通过。未连接 Camera/LCD 子板，也未加装板外
+I2C 上拉电阻；主板自身 R109/R98 上拉已在后续原理图复核中确认。最终硬件结果：
 
 | 检查 | 结果 |
 | --- | --- |
@@ -547,10 +549,100 @@ GPIO14–19 连接 `SD2_D0–D3/CLK/CMD`，GPIO54 为 `C6_EN`，GPIO6 为
 本次审计未改变可执行代码或配置；新镜像因构建时间变化未重复烧录，硬件
 验收仍对应 11.5 中已经写入同一块 V1.8/C6 实板的镜像及原始串口记录。
 
+### 11.7 Gate G1 基础稳定性补测
+
+2026-08-15 在 ESP32-P4 revision v3.2、NuttX commit `d49dc5e5a9c` 上新增
+内置命令 `g1_smoke`，同时给出 system timer、定时器中断后的 POSIX
+signal 递送、monotonic clock、PSRAM 用户堆和 Flash 重启保持证据。
+
+`g1_smoke 1800` 使用 10 Hz POSIX timer，完成 18000 次 signal wait 和
+18000 轮变长堆块的分配、全量写入、全量校验与释放。30 分钟结果：
+
+| 检查 | 结果 |
+| --- | --- |
+| Timer/Interrupt | 18000/18000，elapsed 1800030 ms |
+| PSRAM user heap | arena 33554432 bytes |
+| Heap used | before 8952、after 8952、drift 0 |
+| Largest free block | 33545480 bytes，所有分钟采样不变 |
+| Crash/reset | 未观察到 |
+
+最终复现构建命令为：
+
+```bash
+PATH=/tmp/openvela-esptool-venv/bin:$PATH \
+  ./build.sh vendor/openvela/boards/contest2026_345_board/configs/nsh -j16
+```
+
+使用 `riscv-none-elf-gcc 13.4.0` 和隔离安装的 esptool 4.12.0，命令退出 0。
+最终产物为：`nuttx` 592232 bytes、SHA-256
+`85b463cc8532613965bfd7f479c8df2bb403d5ca64f16aa77aeb3fd36d2ff8db`；
+`nuttx.hex` 623521 bytes、SHA-256
+`36e63edc48246f075f2428a991a62b26988c822802081d84bb1dbce59c83cf74`；
+`nuttx.bin` 279240 bytes、SHA-256
+`681512daff4fb25cb898153b9530705e6eb288945bce820019980eb6910d7725`。
+`image_info` 将 BIN 识别为 ESP32-P4、16 MB、DIO、80 MHz，入口
+`0x4ff4811c`，checksum `0x7b` 有效。该最终 BIN 经 COM3 写入 `0x2000`，
+写后 hash 校验通过；随后 `g1_smoke 2` 和 `sc2336_probe` 均再次 PASS。
+
+`/data/g1-persist.bin` 在首次运行写入 sequence 1，执行 NSH `reboot` 后读回
+校验通过并写入 sequence 2；30 分钟测试启动时继续读回 sequence 2 并写入
+sequence 3。10 次 NSH 软件热重启均重新挂载 `/data`、进入 `nsh>` 并成功
+执行 `uname -a`，结果为 10/10 PASS。
+
+原始日志：
+
+- [30 分钟稳定性](hardware-logs/esp32p4-g1-stability-30min-2026-08-15.log)，
+  SHA-256 `c16b69136616e37c1bd6eccec63f7a23afdf4ed678ec19bef9b7e27d7f64cd19`。
+- [10 次热重启](hardware-logs/esp32p4-g1-warm-reboot-10x-2026-08-15.log)，
+  SHA-256 `d1c35c76c4ee292ebad8b7f52182deeb4e869458754dd173165cd1ba1ec06a64`。
+- [Flash 重启保持](hardware-logs/esp32p4-g1-flash-persistence-2026-08-15.log)，
+  SHA-256 `e828348946953a70d4eaef6f8fcbcb2c0e701bd9ea865592cd34676684530429`。
+- [最终镜像联合 smoke](hardware-logs/esp32p4-g1-camera-final-smoke-2026-08-15.log)，
+  SHA-256 `21c600db5a5fbfa6654ef5c7d6c8471a5143baa37e730eeeaf88807da1a8abe4`。
+
+随后使用 `tools/hardware/reset_cycles.py --mode manual-power`，通过人工切断并
+恢复开发板供电完成 20 次有效冷启动。首批 20 个测试槽位为 19/20 PASS；其中
+第 3 个槽位因 60 秒内未检测到 COM3 消失而判为“未执行到断电”，不是固件启动
+失败。追加 1 次真实断电补测为 1/1 PASS，因此有效冷启动累计 20/20。每次有效
+测试均观察到 Flash MTD `/data` 挂载、`NuttShell (NSH) NuttX-13.0.0`、`nsh>`，
+并成功执行 `uname -a`，固件 commit 均为 `d49dc5e5a9c`。
+
+断电测试后再次执行 `uname -a`、`free`、`ps`、`ls /dev`、`g1_smoke 2` 和
+`sc2336_probe`，测试器退出 0。PSRAM 用户堆为 33554432 bytes，短测完成
+20/20 timer signals、20 轮 heap 校验且 drift 为 0；Flash persistence sequence
+从 5 递增到 6；SC2336 ID 仍为 `0xcb3a`。
+
+补充原始日志：
+
+- [首批 20 个断电测试槽位](hardware-logs/esp32p4-g1-cold-boot-20x-2026-08-15.log)，
+  SHA-256 `c9ebc7a176f057cf403387d8d2d952e3f7254fdb0fb808fd14ec23f0b8e07df2`。
+- [1 次断电补测](hardware-logs/esp32p4-g1-cold-boot-supplement-1x-2026-08-15.log)，
+  SHA-256 `a2e9cbe4ad1b69f36804955c3b7a3c58c86716263257f4e3f0c25f9021f7de57`。
+- [断电后的联合 smoke](hardware-logs/esp32p4-g1-post-cold-smoke-2026-08-15.log)，
+  SHA-256 `889a51ecedb017ec36ed72bdf7f4cf47c525d590855f3ba2c9f329f5740e7ced`。
+
+### 11.8 AG638A32M2 / SC2336 最小风险识别
+
+硬件依据为主板 `SCH_ESP32-P4X_FUNCTION_EV_BOARD` V1.8 sheet 3 和 Camera
+子板 sheet 1。主板 GPIO8/GPIO7 分别承载共享 `ESP_I2C_SCL/SDA`；Camera
+子板 Q3 完成 3.3 V 到 1.8 V 双向电平转换，R20/R23 提供传感器侧 2.2 kΩ
+上拉，U1/U2 产生 1.8 V/2.8 V，Y1 提供 24 MHz `XVCLK`。模块资料
+`camera_datasheet.pdf` 标识内部传感器为 SC2336。
+
+新增 `sc2336_probe` 只通过 `/dev/i2c0` 在 100 kHz 下执行两次 16-bit
+register-address、8-bit-value 的 repeated-start 读取；不写 sensor register，
+不启动 stream、MIPI CSI、DMA 或 frame buffer。真机结果：7-bit 地址 `0x30`
+ACK，`0x3107=0xcb`、`0x3108=0x3a`，组合 ID `0xcb3a`，PASS。
+
+原始日志：[SC2336 ID probe](hardware-logs/esp32p4-sc2336-id-probe-2026-08-15.log)，
+SHA-256 `9ef17f2c8a1e7ff3f97763288001966001123fc986a2e0e771005ef2bc7f85e4`。
+
 ## 12. 下一最小步骤
 
-1. 将本次公共 I2C 驱动改动形成 NuttX PR #340 的后续独立 commit。
-2. 将板级 I2C 注册、defconfig、硬件日志和移植记录形成专属仓独立 commit/PR。
-3. 开始 SPI 阶段的“依赖差异→最小实现→构建→硬件证据”，不要和 I2C 压成一个提交。
-4. Camera/SC2336 和 LCD/GT911 共用 GPIO7/8，但分别留到 CSI 和显示/触摸阶段验证。
-5. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，不阻塞后续外设开发。
+1. 将 G1 测试入口、SC2336 只读探测、硬件日志和文档形成专属仓独立 commit/PR。
+2. 固定官方 SC2336 初始化表的精确来源 commit 和许可证，再分析 openvela
+   MIPI CSI controller、DMA/cache、video device 接口差距。
+3. 下一次 Camera 真机增量先写入最小 sensor 初始化表并确认 stream control，
+   再单独开启 CSI/DMA；不要一次合入完整视频链路。
+4. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，
+   不阻塞 Camera 依赖差异整理。

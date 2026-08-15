@@ -1,0 +1,9 @@
+6 read-only probe address=0x30 frequency=100000
+SC2336 ID PASS address=0x30 id=0xcb3a
+nsh>
+===== COMMAND: sc2336_probe =====
+sc2336_probe
+SC2336 read-only probe address=0x30 frequency=100000
+SC2336 ID PASS address=0x30 id=0xcb3a
+nsh> [K
+nsh> 

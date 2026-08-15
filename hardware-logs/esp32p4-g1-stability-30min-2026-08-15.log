@@ -1,0 +1,43 @@
+
+nsh>
+===== COMMAND: g1_smoke 1800 =====
+g1_smoke 1800
+G1 START duration=1800 timer_hz=10
+G1 PERSIST PASS sequence=2
+G1 PERSIST WRITE sequence=3
+G1 HEAP START arena=33554432 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=60 timer_signals=600 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=120 timer_signals=1200 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=180 timer_signals=1800 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=240 timer_signals=2400 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=300 timer_signals=3000 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=360 timer_signals=3600 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=420 timer_signals=4200 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=480 timer_signals=4800 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=540 timer_signals=5400 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=600 timer_signals=6000 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=660 timer_signals=6600 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=720 timer_signals=7200 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=780 timer_signals=7800 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=840 timer_signals=8400 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=900 timer_signals=9000 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=960 timer_signals=9600 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1020 timer_signals=10200 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1080 timer_signals=10800 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1140 timer_signals=11400 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1200 timer_signals=12000 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1260 timer_signals=12600 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1320 timer_signals=13200 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1380 timer_signals=13800 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1440 timer_signals=14400 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1500 timer_signals=15000 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1560 timer_signals=15600 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1620 timer_signals=16200 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1680 timer_signals=16800 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1740 timer_signals=17400 used=8952 free=33545480 largest=33545480
+G1 STATUS elapsed=1800 timer_signals=18000 used=8952 free=33545480 largest=33545480
+G1 TIMER PASS signals=18000 elapsed=1800030ms
+G1 HEAP PASS cycles=18000 used_before=8952 used_after=8952 drift=0
+G1 PASS
+nsh> [K
+n

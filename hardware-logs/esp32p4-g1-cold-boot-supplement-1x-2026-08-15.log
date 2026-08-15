@@ -1,0 +1,9 @@
+
+===== manual-power cycle 1 =====
+SPI Flash MTD: 0x00f00000-0x00ffffff mounted at /data
+
+NuttShell (NSH) NuttX-13.0.0
+nsh> [Kuname -a
+NuttX 13.0.0 d49dc5e5a9c Aug 15 2026 19:17:51 risc-v esp32p4x-function-ev-board
+nsh>
+manual-power: 1/1 passed
