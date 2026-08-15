@@ -7,6 +7,10 @@
 #ifndef __VENDOR_OPENVELA_BOARDS_CONTEST2026_345_SRC_BOARD_SPIFLASH_H
 #define __VENDOR_OPENVELA_BOARDS_CONTEST2026_345_SRC_BOARD_SPIFLASH_H
 
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
 #include <nuttx/config.h>
 
 /****************************************************************************
