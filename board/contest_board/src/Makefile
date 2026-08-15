@@ -16,4 +16,8 @@ ifeq ($(CONFIG_ESPRESSIF_I2C0),y)
 CSRCS += board_i2c.c
 endif
 
+ifeq ($(CONFIG_ESPRESSIF_SPIFLASH_SMARTFS),y)
+CSRCS += board_spiflash.c
+endif
+
 include $(TOPDIR)/boards/Board.mk
