@@ -791,9 +791,88 @@ SHA-256 `9ef17f2c8a1e7ff3f97763288001966001123fc986a2e0e771005ef2bc7f85e4`。
 
 ### 14.6 下一步行动
 
-1. **CAM-004（公共 NuttX 仓）：ESP32-P4 MIPI CSI 最小控制器与 D-PHY 接收链路**：
-   - 在 `nuttx/arch/risc-v/src/esp32p4/` 中实现基于 HAL 的 CSI lower-half。
-   - 在 `hal_esp32p4.mk` 中引入 `components/esp_hal_cam/mipi_csi_hal.c` 与相关底层头文件。
-   - 验证 CSI 控制器初始化与 D-PHY clock/data lane 状态。
+1. **CAM-004（公共 NuttX 仓）：ESP32-P4 MIPI CSI 最小控制器与 D-PHY 接收链路**：已完成。
 2. **CAM-005（公共 NuttX 仓）：CSI DMA 描述符与 PSRAM frame capture 支持**。
 3. **CAM-006（团队仓）：板级 Camera 驱动注册 (`/dev/video0`) 与取帧 Smoke App**。
+
+## 15. CAM-004：ESP32-P4 MIPI CSI 控制器与 D-PHY 接收链路实现与硬件验证
+
+### 15.1 本轮目标与双仓边界
+
+- **本轮目标**：在公共 `nuttx` 仓库中实现 ESP32-P4 MIPI CSI-2 Host 控制器、D-PHY 物理层接收器和 CSI Bridge 子系统的最小驱动与寄存器诊断接口，并在硬件上打通传感器流控与 D-PHY 状态联动验证。
+- **双仓边界纪律**：
+  - **公共 `nuttx` 仓**：添加公共 SoC 驱动 [`esp32p4_mipi_csi.h`](file:///home/uleemos/openvela-contest/nuttx/arch/risc-v/include/esp32p4/esp32p4_mipi_csi.h)、[`esp32p4_mipi_csi.c`](file:///home/uleemos/openvela-contest/nuttx/arch/risc-v/src/esp32p4/esp32p4_mipi_csi.c)、[`Kconfig`](file:///home/uleemos/openvela-contest/nuttx/arch/risc-v/src/esp32p4/Kconfig)、[`Make.defs`](file:///home/uleemos/openvela-contest/nuttx/arch/risc-v/src/esp32p4/Make.defs) 与 [`hal_esp32p4.mk`](file:///home/uleemos/openvela-contest/nuttx/arch/risc-v/src/esp32p4/hal_esp32p4.mk)；严格通过 `nxstyle` 代码风格检查。
+  - **团队专属仓**：启用 `CONFIG_ESP32P4_MIPI_CSI=y`，在 `sc2336_probe` 中新增 `csi-init`、`csi-status`、`csi-test` 与 `csi-deinit` 命令，并完成真机串口日志归档。
+
+### 15.2 实现与架构设计
+
+1. **时钟与复位管理**：
+   - 使用 `HP_SYS_CLKRST` 配置 D-PHY 时钟源为 20 MHz PLL（`MIPI_CSI_PHY_CLK_SRC_PLL_F20M`）；
+   - 使能 D-PHY 配置时钟、CSI Host 总线时钟和 Bridge 模块时钟，并执行硬件复位释放。
+2. **HAL 与寄存器接入**：
+   - 接入底层 `mipi_csi_hal.c` 与 `mipi_csi_periph.c`；
+   - 根据工作模式动态配置 Active Data Lanes（2-lane）、RAW10 数据类型过滤（`0x2b`）、帧尺寸（1280×720 / 1920×1080）和 D-PHY PLL 频段（480 Mbps）；
+   - 桥接器 FIFO 阈值配置为 960 字节，防止数据突发溢出。
+3. **D-PHY 状态与中断诊断**：
+   - 导出 `esp32p4_mipi_csi_get_status()` 与 `esp32p4_mipi_csi_dump()` 接口；
+   - 实时读取 Host `phy_rx`（`phy_rxclkactivehs`, `phy_rxulpsclknot`, `phy_rxulpsesc`）、`phy_stopstate`（`phy_stopstateclk`, `phy_stopstatedata_0/1`）、主中断状态 `int_st_main`、PHY 致命错误状态 `int_st_phy_fatal` 以及 Bridge 缓冲区深度。
+
+### 15.3 构建与固件产物
+
+- **构建命令**：
+  ```bash
+  cd /home/uleemos/openvela-contest
+  PATH=/tmp/openvela-esptool-venv/bin:$PATH \
+    ./build.sh vendor/openvela/boards/contest2026_345_board/configs/nsh -j16
+  ```
+- **代码规范检查**：
+  - `arch/risc-v/src/esp32p4/esp32p4_mipi_csi.h`: **PASSED nxstyle check**
+  - `arch/risc-v/src/esp32p4/esp32p4_mipi_csi.c`: **PASSED nxstyle check**
+  - `arch/risc-v/include/esp32p4/esp32p4_mipi_csi.h`: **PASSED nxstyle check**
+- **固件产物**：
+  - `nuttx`：605828 bytes，SHA-256 `215cfd5c0fb42e3029f7c136459797bb06c9c500acfef1ec3af8d8bb3a5eb6f2`
+  - `nuttx.hex`：654579 bytes，SHA-256 `118424e83a6c1b2e029829dfe8bf4221c6f04d17415f165c66618aac7478dd8d`
+  - `nuttx.bin`：284184 bytes，SHA-256 `275c3924c3b7f860b9c099d29248f3a04cdade517fa053e6ce80c99be1875e7f`
+  - `image_info`：ESP32-P4、16 MB、DIO、80 MHz、Entry `0x4ff4811c`，校验和 `0x3d` 有效。
+
+### 15.4 真机串口验证与测试结果
+
+- **烧录命令**：
+  ```powershell
+  python.exe -m esptool -c esp32p4 -p COM3 -b 921600 write-flash `
+    --flash-size 16MB --flash-mode dio --flash-freq 80m `
+    0x2000 openvela-esp32p4-nuttx.bin
+  ```
+  Hash of data verified，成功写入 `0x2000` 并完成硬复位。
+
+- **验证项目与结果**：
+  1. **系统环境**：`uname -a` 返回 `NuttX 13.0.0 d49dc5e5a9c-dirty`；`free` 显示 Umem 33549848 bytes 正常。
+  2. **CSI 控制器初始化 (`sc2336_probe csi-init 720p`)**：
+     - CSI Host / D-PHY / Bridge 初始化成功，`Initialized: YES, Bridge Enabled: YES`。
+  3. **CSI 状态转储 (`sc2336_probe csi-status`)**：
+     - 准确读取 D-PHY 初始状态，所有致命中断寄存器均为 `0x00000000`，FIFO 深度 `0 bytes`。
+  4. **720p 30 fps CSI D-PHY 联动测试 (`sc2336_probe csi-test 720p`)**：
+     - Step 1: CSI 控制器初始化 PASS
+     - Step 2: D-PHY 待机状态采样 PASS
+     - Step 3: SC2336 软复位并下发 165 个模式寄存器，关键寄存器校验 PASS
+     - Step 4: 激活 Stream ON (`0x0100=0x01`) PASS
+     - Step 5: D-PHY 高速流接收状态验证，零 PHY 致命错误（`int_st_phy_fatal = 0x00000000`），零包错误（`int_st_pkt_fatal = 0x00000000`），保持 200 ms PASS
+     - Step 6: 停止 Stream OFF (`0x0100=0x00`) PASS
+     - Step 7: D-PHY 返回待机状态 PASS
+     - 结论：**ALL PASS**。
+  5. **1080p 30 fps CSI D-PHY 联动测试 (`sc2336_probe csi-test 1080p`)**：149 寄存器模式表，D-PHY 高速接收与流切换全部 **ALL PASS**。
+  6. **1080p 25 fps CSI D-PHY 联动测试 (`sc2336_probe csi-test 1080p25`)**：130 寄存器模式表，D-PHY 高速接收与流切换全部 **ALL PASS**。
+  7. **CSI 控制器去初始化 (`sc2336_probe csi-deinit`)**：成功关闭 Bridge 并对 CSI/PHY 门控时钟，去初始化后 `csi-status` 报告 `Initialized: NO`，PASS。
+
+### 15.5 证据文件归档
+
+- 原始串口日志：[`hardware-logs/esp32p4-csi-dphy-smoke-2026-08-19.log`](hardware-logs/esp32p4-csi-dphy-smoke-2026-08-19.log)
+- 日志 SHA-256：`7e80b78aedcd4a47a1612d093adaececd1f49ba491d6a284fc744a8181b964eb`
+- 标记状态：**peripheral-tested (ESP32-P4 MIPI CSI Controller & D-PHY Link Verified on Hardware)**。
+
+### 15.6 下一步行动
+
+1. **CAM-005（公共 NuttX 仓）：ESP32-P4 CSI DMA 描述符与 PSRAM 帧缓冲区捕获驱动**。
+2. **CAM-006（团队仓）：板级 Camera 驱动注册 (`/dev/video0`) 与取帧 Smoke App**。
+3. **CAM-007/CAM-008（团队仓）：Gate G2 视频流稳定性测试与全量日志归档**。
+

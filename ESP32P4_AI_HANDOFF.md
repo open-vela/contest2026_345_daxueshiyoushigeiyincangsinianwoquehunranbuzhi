@@ -4,7 +4,7 @@
 >
 > 交接目标：让新的 AI 工具无需依赖此前聊天记录，即可从正确 Git 基线继续开发，并保持相同的仓库边界、硬件证据、构建验证和 PR 质量。
 >
-> 当前阶段：Gate G1 已通过；CAM-002 官方 SC2336 初始化表来源与依赖审计已完成；CAM-003 传感器最小初始化与 Stream Control 控制面驱动已实现并通过真机串口验证与日志归档；下一主线是 CAM-004（ESP32-P4 MIPI CSI 接收链路）与 Gate G2。
+> 当前阶段：Gate G1 已通过；CAM-002 官方 SC2336 初始化表来源与依赖审计已完成；CAM-003 传感器最小初始化与 Stream Control 控制面已通过；CAM-004 ESP32-P4 MIPI CSI 控制器与 D-PHY 接收链路已实现并通过真机串口验证与日志归档；下一主线是 CAM-005（CSI DMA 与 PSRAM 取帧驱动）与 Gate G2。
 >
 > 本文是当前状态和执行规则的入口；详细历史证据继续以 `PORTING_NOTES.md` 和 `hardware-logs/` 为准。
 
@@ -25,11 +25,12 @@
    “依赖差异 → 最小实现 → 构建 → 真机证据 → 独立 commit”推进。
 8. 团队专属仓和公共 `nuttx` 是两个独立 Git 仓、两个独立 PR 流程。绝不能在
    一笔提交或一个 PR 中混合二者。
-9. 团队仓 PR #1～#4 已 Rebase and merge。公共 NuttX PR #340 仍为 Open；其
+9. 团队仓 PR #1～#5 已 Rebase and merge。公共 NuttX PR #340 仍为 Open；其
    代码可以继续作为本地联调基线，但不能声称已进入赛事正式 NuttX 基线。
-10. CAM-002（依赖与官方来源审计）与 CAM-003（SC2336 软复位、模式配置与流控制）
-    已在团队仓就绪并通过真机全流程验证与 10/10 循环流切换测试，硬件证据已归档；
-    下一阶段推进 CAM-004（MIPI CSI 控制器）。
+10. CAM-002～CAM-004 已全部完成并具备真机全流程证据：SC2336 软复位/流控/多模式配置通过，
+    ESP32-P4 MIPI CSI-2 Host 控制器/D-PHY 物理层/Bridge 驱动在公共 nuttx 仓实现并通过 nxstyle，
+    真机联动测试 720p/1080p D-PHY 高速流接收全部 ALL PASS（零 PHY/Packet 致命中断）；
+    下一阶段推进 CAM-005（CSI DMA 与 PSRAM 帧捕获驱动）。
 
 ## 1. 仓库与远端管理背景
 
@@ -317,7 +318,8 @@ Remaining assumptions and hardware tests:
 | Gate G1 | 已通过 | 20/20 有效冷启动、10/10 热重启、30 分钟稳定 |
 | Camera SC2336 依赖与官方来源审计 (CAM-002) | 已完成并落盘 | `PORTING_NOTES.md` 第 13 节；Apache-2.0 官方模式表 |
 | Camera SC2336 最小初始化与流控制 (CAM-003) | 已真机通过 | `app/sc2336_probe/`（ID/Reset/Init/Stream-ON/OFF/Cycle 720p/1080p 全通过）；日志 `esp32p4-sc2336-control-smoke-2026-08-19.log` |
-| Camera MIPI CSI 取帧 (CAM-004/005) | 待实现 | 下一主线（Gate G2） |
+| ESP32-P4 MIPI CSI 控制器与 D-PHY 接收链路 (CAM-004) | 已真机通过 | `esp32p4_mipi_csi.c/h`、`hal_esp32p4.mk`、`nxstyle PASS`；真机 720p/1080p/1080p25 D-PHY 联动测试全部 ALL PASS，零 PHY 致命错误；日志 `esp32p4-csi-dphy-smoke-2026-08-19.log` |
+| Camera CSI DMA 与 PSRAM 取帧驱动 (CAM-005) | 待实现 | 下一主线（Gate G2） |
 | MIPI DSI/LCD/Touch | 未实现 | Camera 第一帧后独立推进 |
 | 通用 GP-SPI | 尚未作为独立子系统完成 | 不属于当前 Camera 关键路径，可另开增量 |
 | Ethernet/C6 Wi-Fi/Audio | 未实现 | G4 后再按优先级推进，不能阻塞离线闭环 |

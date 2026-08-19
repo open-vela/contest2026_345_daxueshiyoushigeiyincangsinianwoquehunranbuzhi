@@ -1,0 +1,196 @@
+f00000-0x00ffffff mounted at /data
+
+NuttShell (NSH) NuttX-13.0.0
+nsh>
+===== COMMAND: uname -a =====
+uname -a
+NuttX 13.0.0 d49dc5e5a9c-dirty Aug 19 2026 23:12:51 risc-v esp32p4x-function-ev-board
+nsh>
+===== COMMAND: free =====
+ [K
+nsh> [Kfree
+      total       used       free    maxused    maxfree  nused  nfree name
+   33554432       4584   33549848       4960   33549848     10      1 Umem
+     476328       8968     467360       9344     467360     47      1 Kmem
+nsh>
+===== COMMAND: sc2336_probe probe =====
+[K
+nsh> [Ksc2336_probe probe
+SC2336 ID PASS address=0x30 id=0xcb3a
+nsh>
+===== COMMAND: sc2336_probe csi-init 720p =====
+[K
+nsh> [Ksc2336_probe csi-init 720p
+Initializing ESP32-P4 MIPI CSI controller (720p: 1280x720, 2 lanes, 480 Mbps)...
+========================================
+ ESP32-P4 MIPI CSI Controller Status
+========================================
+  Initialized     : YES
+  Bridge Enabled  : YES
+  Clock Lane      : LP/Inactive, Active/Transition (ulpsnot=1)
+  Data Lane 0     : Active/HS (ulps=0)
+  Data Lane 1     : Active/HS (ulps=0)
+  Host Main INT   : 0x00000000
+  PHY Fatal INT   : 0x00000000
+  Packet Fatal INT: 0x00000000
+  Bridge INT      : 0x00000000
+  Bridge FIFO Lvl : 0 bytes
+========================================
+nsh>
+===== COMMAND: sc2336_probe csi-status =====
+ [K
+nsh> [Ksc2336_probe csi-status
+========================================
+ ESP32-P4 MIPI CSI Controller Status
+========================================
+  Initialized     : YES
+  Bridge Enabled  : YES
+  Clock Lane      : LP/Inactive, Active/Transition (ulpsnot=1)
+  Data Lane 0     : Active/HS (ulps=0)
+  Data Lane 1     : Active/HS (ulps=0)
+  Host Main INT   : 0x00000000
+  PHY Fatal INT   : 0x00000000
+  Packet Fatal INT: 0x00000000
+  Bridge INT      : 0x00000000
+  Bridge FIFO Lvl : 0 bytes
+========================================
+nsh>
+===== COMMAND: sc2336_probe csi-test 720p =====
+[K
+nsh> [Ksc2336_probe csi-test 720p
+========================================
+ ESP32-P4 MIPI CSI D-PHY Smoke Test
+ Mode: 720p, Sensor I2C: 0x30
+========================================
+[Step 1/7] Initializing ESP32-P4 MIPI CSI...
+Initializing ESP32-P4 MIPI CSI controller (720p: 1280x720, 2 lanes, 480 Mbps)...
+  -> CSI Controller initialized PASS
+[Step 2/7] Checking D-PHY Standby Lane States...
+  Standby state: clk_stop=0, clk_hs=0, data_stop=0x00
+[Step 3/7] Initializing Sensor (720p)...
+SC2336 soft-reset: writing reg 0x0103 = 0x01...
+SC2336 soft-reset PASS, chip_id=0xcb3a restored
+SC2336 init mode: 720p...
+SC2336 init table written successfully (165 registers)
+SC2336 readback verification (720p):
+  CLK_CTRL (0x3106)   = 0x05 (expected 0x05)
+  ANA_INIT_1 (0x36e9) = 0x80 (expected 0x80)
+  ANA_INIT_2 (0x37f9) = 0x80 (expected 0x80)
+  VTS      (0x320e/f) = 1500
+SC2336 register verification PASS
+[Step 4/7] Activating Sensor Stream ON...
+SC2336 stream control: setting 0x0100 = 0x01 (STREAM_ON)...
+SC2336 STREAM_ON PASS (target=0x01, I2C ACK OK)
+[Step 5/7] Verifying D-PHY Active High-Speed Reception...
+  Active state : clk_stop=0, clk_hs=0, data_stop=0x00
+  Interrupts   : main=0x00000000, phy_fatal=0x00000000, pkt_fatal=0x00000000
+  Holding stream for 200 ms...
+[Step 6/7] Returning Sensor to Standby...
+SC2336 stream control: setting 0x0100 = 0x00 (STREAM_OFF)...
+SC2336 STREAM_OFF PASS (target=0x00, I2C ACK OK)
+[Step 7/7] Verifying D-PHY Return to Standby...
+  Final state  : clk_stop=0, clk_hs=0, data_stop=0x00
+========================================
+ ESP32-P4 MIPI CSI D-PHY Smoke Test: ALL PASS
+========================================
+nsh> [K
+nsh> [K
+===== COMMAND: sc2336_probe csi-test 1080p =====
+sc2336_probe csi-test 1080p
+========================================
+ ESP32-P4 MIPI CSI D-PHY Smoke Test
+ Mode: 1080p, Sensor I2C: 0x30
+========================================
+[Step 1/7] Initializing ESP32-P4 MIPI CSI...
+Initializing ESP32-P4 MIPI CSI controller (1080p: 1920x1080, 2 lanes, 480 Mbps)...
+  -> CSI Controller initialized PASS
+[Step 2/7] Checking D-PHY Standby Lane States...
+  Standby state: clk_stop=0, clk_hs=0, data_stop=0x00
+[Step 3/7] Initializing Sensor (1080p)...
+SC2336 soft-reset: writing reg 0x0103 = 0x01...
+SC2336 soft-reset PASS, chip_id=0xcb3a restored
+SC2336 init mode: 1080p...
+SC2336 init table written successfully (149 registers)
+SC2336 readback verification (1080p):
+  CLK_CTRL (0x3106)   = 0x05 (expected 0x05)
+  ANA_INIT_1 (0x36e9) = 0x80 (expected 0x80)
+  ANA_INIT_2 (0x37f9) = 0x80 (expected 0x80)
+  VTS      (0x320e/f) = 1500
+SC2336 register verification PASS
+[Step 4/7] Activating Sensor Stream ON...
+SC2336 stream control: setting 0x0100 = 0x01 (STREAM_ON)...
+SC2336 STREAM_ON PASS (target=0x01, I2C ACK OK)
+[Step 5/7] Verifying D-PHY Active High-Speed Reception...
+  Active state : clk_stop=0, clk_hs=0, data_stop=0x00
+  Interrupts   : main=0x00000000, phy_fatal=0x00000000, pkt_fatal=0x00000000
+  Holding stream for 200 ms...
+[Step 6/7] Returning Sensor to Standby...
+SC2336 stream control: setting 0x0100 = 0x00 (STREAM_OFF)...
+SC2336 STREAM_OFF PASS (target=0x00, I2C ACK OK)
+[Step 7/7] Verifying D-PHY Return to Standby...
+  Final state  : clk_stop=0, clk_hs=0, data_stop=0x00
+========================================
+ ESP32-P4 MIPI CSI D-PHY Smoke Test: ALL PASS
+========================================
+nsh>
+===== COMMAND: sc2336_probe csi-test 1080p25 =====
+ [K
+nsh> [Ksc2336_probe csi-test 1080p25
+========================================
+ ESP32-P4 MIPI CSI D-PHY Smoke Test
+ Mode: 1080p25, Sensor I2C: 0x30
+========================================
+[Step 1/7] Initializing ESP32-P4 MIPI CSI...
+Initializing ESP32-P4 MIPI CSI controller (1080p25: 1920x1080, 2 lanes, 480 Mbps)...
+  -> CSI Controller initialized PASS
+[Step 2/7] Checking D-PHY Standby Lane States...
+  Standby state: clk_stop=0, clk_hs=0, data_stop=0x00
+[Step 3/7] Initializing Sensor (1080p25)...
+SC2336 soft-reset: writing reg 0x0103 = 0x01...
+SC2336 soft-reset PASS, chip_id=0xcb3a restored
+SC2336 init mode: 1080p25...
+SC2336 init table written successfully (130 registers)
+SC2336 readback verification (1080p25):
+  CLK_CTRL (0x3106)   = 0x05 (expected 0x05)
+  ANA_INIT_1 (0x36e9) = 0x80 (expected 0x80)
+  ANA_INIT_2 (0x37f9) = 0x80 (expected 0x80)
+  VTS      (0x320e/f) = 1500
+SC2336 register verification PASS
+[Step 4/7] Activating Sensor Stream ON...
+SC2336 stream control: setting 0x0100 = 0x01 (STREAM_ON)...
+SC2336 STREAM_ON PASS (target=0x01, I2C ACK OK)
+[Step 5/7] Verifying D-PHY Active High-Speed Reception...
+  Active state : clk_stop=0, clk_hs=0, data_stop=0x00
+  Interrupts   : main=0x00000000, phy_fatal=0x00000000, pkt_fatal=0x00000000
+  Holding stream for 200 ms...
+[Step 6/7] Returning Sensor to Standby...
+SC2336 stream control: setting 0x0100 = 0x00 (STREAM_OFF)...
+SC2336 STREAM_OFF PASS (target=0x00, I2C ACK OK)
+[Step 7/7] Verifying D-PHY Return to Standby...
+  Final state  : clk_stop=0, clk_hs=0, data_stop=0x00
+========================================
+ ESP32-P4 MIPI CSI D-PHY Smoke Test: ALL PASS
+========================================
+nsh>
+===== COMMAND: sc2336_probe csi-deinit =====
+ [K
+nsh> [Ksc2336_probe csi-deinit
+nsh>
+===== COMMAND: sc2336_probe csi-status =====
+ [K
+nsh> [Ksc2336_probe csi-status
+========================================
+ ESP32-P4 MIPI CSI Controller Status
+========================================
+  Initialized     : NO
+  Bridge Enabled  : NO
+  Clock Lane      : LP/Inactive, Active/Transition (ulpsnot=0)
+  Data Lane 0     : Active/HS (ulps=0)
+  Data Lane 1     : Active/HS (ulps=0)
+  Host Main INT   : 0x00000000
+  PHY Fatal INT   : 0x00000000
+  Packet Fatal INT: 0x00000000
+  Bridge INT      : 0x00000000
+  Bridge FIFO Lvl : 0 bytes
+========================================
+nsh>
