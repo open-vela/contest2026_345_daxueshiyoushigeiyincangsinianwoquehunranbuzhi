@@ -31,6 +31,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -41,6 +42,10 @@
 #include <unistd.h>
 
 #include <nuttx/i2c/i2c_master.h>
+
+#ifdef CONFIG_ESP32P4_MIPI_CSI
+#include <arch/chip/esp32p4_mipi_csi.h>
+#endif
 
 #include "sc2336_tables.h"
 
@@ -435,6 +440,137 @@ static int sc2336_run_cycles(int fd, int cycles, const char *mode_name)
   return 0;
 }
 
+#ifdef CONFIG_ESP32P4_MIPI_CSI
+static int sc2336_csi_init_mode(const char *mode_name)
+{
+  struct esp32p4_mipi_csi_config_s cfg;
+
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.lanes_num    = 2;
+  cfg.data_type    = ESP32P4_CSI_DT_RAW10;
+  cfg.in_bpp       = 10;
+  cfg.out_bpp      = 10;
+  cfg.byte_swap_en = false;
+
+  if (strcmp(mode_name, "1080p") == 0 || strcmp(mode_name, "1080p30") == 0 ||
+      strcmp(mode_name, "1080p25") == 0)
+    {
+      cfg.frame_width        = 1920;
+      cfg.frame_height       = 1080;
+      cfg.lane_bit_rate_mbps = 480;
+    }
+  else /* 720p */
+    {
+      cfg.frame_width        = 1280;
+      cfg.frame_height       = 720;
+      cfg.lane_bit_rate_mbps = 480;
+    }
+
+  printf("Initializing ESP32-P4 MIPI CSI controller (%s: %ux%u, %d lanes, %d Mbps)...\n",
+         mode_name, cfg.frame_width, cfg.frame_height,
+         cfg.lanes_num, cfg.lane_bit_rate_mbps);
+
+  return esp32p4_mipi_csi_init(&cfg);
+}
+
+static int sc2336_run_csi_smoke_test(int fd, const char *mode_name)
+{
+  struct esp32p4_mipi_csi_status_s st;
+  const struct sc2336_reg_s *table;
+  int ret;
+
+  printf("========================================\n");
+  printf(" ESP32-P4 MIPI CSI D-PHY Smoke Test\n");
+  printf(" Mode: %s, Sensor I2C: 0x%02x\n", mode_name, SC2336_SCCB_ADDRESS);
+  printf("========================================\n");
+
+  /* Step 1: Initialize CSI controller */
+
+  printf("[Step 1/7] Initializing ESP32-P4 MIPI CSI...\n");
+  ret = sc2336_csi_init_mode(mode_name);
+  if (ret < 0)
+    {
+      fprintf(stderr, "CSI init FAIL: %d\n", ret);
+      return ret;
+    }
+  printf("  -> CSI Controller initialized PASS\n");
+
+  /* Step 2: Query Standby D-PHY status */
+
+  printf("[Step 2/7] Checking D-PHY Standby Lane States...\n");
+  ret = esp32p4_mipi_csi_get_status(&st);
+  if (ret < 0) return ret;
+
+  printf("  Standby state: clk_stop=%d, clk_hs=%d, data_stop=0x%02x\n",
+         st.clk_stopstate, st.clk_activehs, st.data_stopstate);
+
+  /* Step 3: Sensor Reset and Table init */
+
+  printf("[Step 3/7] Initializing Sensor (%s)...\n", mode_name);
+  ret = sc2336_software_reset(fd);
+  if (ret < 0) return ret;
+
+  table = sc2336_get_mode_table(mode_name);
+  ret = sc2336_init_table(fd, table, mode_name);
+  if (ret < 0) return ret;
+
+  ret = sc2336_verify_key_registers(fd, mode_name);
+  if (ret < 0) return ret;
+
+  /* Step 4: Stream ON */
+
+  printf("[Step 4/7] Activating Sensor Stream ON...\n");
+  ret = sc2336_set_stream(fd, true);
+  if (ret < 0) return ret;
+
+  usleep(100000); /* 100ms active */
+
+  /* Step 5: Check Active D-PHY status */
+
+  printf("[Step 5/7] Verifying D-PHY Active High-Speed Reception...\n");
+  ret = esp32p4_mipi_csi_get_status(&st);
+  if (ret < 0) return ret;
+
+  printf("  Active state : clk_stop=%d, clk_hs=%d, data_stop=0x%02x\n",
+         st.clk_stopstate, st.clk_activehs, st.data_stopstate);
+  printf("  Interrupts   : main=0x%08" PRIx32 ", phy_fatal=0x%08" PRIx32 ", pkt_fatal=0x%08" PRIx32 "\n",
+         st.int_st_main, st.int_st_phy_fatal, st.int_st_pkt_fatal);
+
+  if (st.int_st_phy_fatal != 0)
+    {
+      fprintf(stderr, "CSI FAIL: PHY Fatal Error detected (0x%08" PRIx32 ")\n",
+              st.int_st_phy_fatal);
+      sc2336_set_stream(fd, false);
+      return -EIO;
+    }
+
+  printf("  Holding stream for 200 ms...\n");
+  usleep(200000);
+
+  /* Step 6: Stream OFF */
+
+  printf("[Step 6/7] Returning Sensor to Standby...\n");
+  ret = sc2336_set_stream(fd, false);
+  if (ret < 0) return ret;
+
+  usleep(50000); /* 50ms standby settling */
+
+  /* Step 7: Final Status Check */
+
+  printf("[Step 7/7] Verifying D-PHY Return to Standby...\n");
+  ret = esp32p4_mipi_csi_get_status(&st);
+  if (ret < 0) return ret;
+
+  printf("  Final state  : clk_stop=%d, clk_hs=%d, data_stop=0x%02x\n",
+         st.clk_stopstate, st.clk_activehs, st.data_stopstate);
+
+  printf("========================================\n");
+  printf(" ESP32-P4 MIPI CSI D-PHY Smoke Test: ALL PASS\n");
+  printf("========================================\n");
+  return 0;
+}
+#endif
+
 static void show_usage(const char *progname)
 {
   printf("Usage: %s [command] [args]\n", progname);
@@ -446,6 +582,12 @@ static void show_usage(const char *progname)
   printf("  stream-off                 Disable streaming mode (0x0100=0x00)\n");
   printf("  test [720p|1080p|1080p25]  Execute full ID -> Reset -> Init -> StreamOn/Off test\n");
   printf("  cycle <N> [mode]           Run N stream-on/off transition cycles (default N=10, mode=720p)\n");
+#ifdef CONFIG_ESP32P4_MIPI_CSI
+  printf("  csi-init [720p|1080p]      Initialize ESP32-P4 MIPI CSI Host/D-PHY\n");
+  printf("  csi-status                 Display ESP32-P4 MIPI CSI/D-PHY status\n");
+  printf("  csi-test [720p|1080p]      Run integrated Sensor + CSI D-PHY link smoke test\n");
+  printf("  csi-deinit                 De-initialize and gate CSI controller\n");
+#endif
 }
 
 /****************************************************************************
@@ -469,6 +611,33 @@ int main(int argc, char *argv[])
 
       cmd = argv[1];
     }
+
+#ifdef CONFIG_ESP32P4_MIPI_CSI
+  if (strcmp(cmd, "csi-status") == 0)
+    {
+      esp32p4_mipi_csi_dump();
+      return EXIT_SUCCESS;
+    }
+  else if (strcmp(cmd, "csi-init") == 0)
+    {
+      if (argc > 2)
+        {
+          mode = argv[2];
+        }
+
+      ret = sc2336_csi_init_mode(mode);
+      if (ret == 0)
+        {
+          esp32p4_mipi_csi_dump();
+        }
+      return (ret == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+  else if (strcmp(cmd, "csi-deinit") == 0)
+    {
+      ret = esp32p4_mipi_csi_deinit();
+      return (ret == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+#endif
 
   fd = open(SC2336_DEVICE_PATH, O_RDWR);
   if (fd < 0)
@@ -539,6 +708,17 @@ int main(int argc, char *argv[])
 
       ret = sc2336_run_cycles(fd, cycles, mode);
     }
+#ifdef CONFIG_ESP32P4_MIPI_CSI
+  else if (strcmp(cmd, "csi-test") == 0)
+    {
+      if (argc > 2)
+        {
+          mode = argv[2];
+        }
+
+      ret = sc2336_run_csi_smoke_test(fd, mode);
+    }
+#endif
   else
     {
       fprintf(stderr, "Unknown command: %s\n", cmd);
