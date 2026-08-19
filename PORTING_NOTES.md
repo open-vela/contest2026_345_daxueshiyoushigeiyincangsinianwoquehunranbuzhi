@@ -639,10 +639,161 @@ SHA-256 `9ef17f2c8a1e7ff3f97763288001966001123fc986a2e0e771005ef2bc7f85e4`。
 
 ## 12. 下一最小步骤
 
-1. 将 G1 测试入口、SC2336 只读探测、硬件日志和文档形成专属仓独立 commit/PR。
-2. 固定官方 SC2336 初始化表的精确来源 commit 和许可证，再分析 openvela
+1. G1 测试入口、SC2336 只读探测、硬件日志和文档已通过专属仓 PR #4
+   Rebase and merge，赛事分支 commit 为
+   `2f32a81cc8845d8801936fcbddbe9202711502cd`。
+2. 后续 AI 开始前先完整阅读 `ESP32P4_AI_HANDOFF.md`，按其中的双仓边界、
+   硬件文档门禁、构建/烧录/验证和 PR 工作流执行。
+3. 固定官方 SC2336 初始化表的精确来源 commit 和许可证，再分析 openvela
    MIPI CSI controller、DMA/cache、video device 接口差距。
-3. 下一次 Camera 真机增量先写入最小 sensor 初始化表并确认 stream control，
+4. 下一次 Camera 真机增量先写入最小 sensor 初始化表并确认 stream control，
    再单独开启 CSI/DMA；不要一次合入完整视频链路。
-4. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，
+5. 补充既有 `esp_libc_stubs.c::__assert_func` noreturn 告警的独立分析，
    不阻塞 Camera 依赖差异整理。
+
+## 13. CAM-002：SC2336 官方来源与 Camera 依赖台账审计
+
+### 13.1 本轮目标与环境状态
+
+- 本轮目标：完成 CAM-002 依赖审计与台账落盘，不写寄存器、不写驱动代码、不启动 DMA。
+- 基线状态：
+  - 公共 NuttX：`feat/esp32p4-soc-contest2026`（HEAD: `d49dc5e5a9c`，对应公共 PR #340）。
+  - 团队专属仓：基线 `2f32a81`（PR #1~#4 已合并）。
+- 硬件文档预检：已通过 `hardware-docs-preflight.sh` 验证（V1.8 主板原理图、P4 Datasheet、TRM、Errata 四份权威 PDF 均正常解析）。
+
+### 13.2 权威硬件证据台账
+
+| 项目 | 证据来源 | 关键技术参数与连接事实 |
+| --- | --- | --- |
+| **主板 CSI 接口** | `SCH_ESP32-P4X_FUNCTION_EV_BOARD_V1.8_20260805.pdf` Sheet 3 | J5 (15-pin FPC `CSI_1-1734248-5`)：Pin 2/3 `CSI_A_DATA0N/P`、Pin 5/6 `CSI_A_DATA1N/P`、Pin 8/9 `CSI_A_CLKN/P`、Pin 11 `CAM_IO0`（经 R106 0 Ω 到 `CSI_IO0`，R123 10 kΩ 上拉到 3.3 V）、Pin 12 `CAM_IO1`（经 R101 0 Ω 到 `CSI_IO1`）、Pin 13 `ESP_I2C_SCL`（GPIO8，R109 2.2 kΩ 上拉）、Pin 14 `ESP_I2C_SDA`（GPIO7，R98 2.2 kΩ 上拉）、Pin 15 `ESP_3V3`。 |
+| **Camera 子板** | `esp32-p4-function-ev-board-camera-subboard-schematics.pdf` Sheet 1 | J1 (15-pin FPC 到主板) ↔ J2 (24-pin FPC 到 Sensor)；U1 (`ME6211C18M5G-N`) 产生 1.8 V `DOVDD_1V8`；U2 (`ME6211C28M5G-N`) 产生 2.8 V `AVDD_2V8`；Y1 为 24 MHz 有源晶振（由 `DOVDD_1V8` 供电），向 Sensor Pin 14 `MCLK` 提供 24 MHz `XVCLK`；Q3 (`DMN63DLDW-7`) 双 NMOS 完成 3.3 V ↔ 1.8 V I2C 双向电平转换，R20/R23 为传感器侧 2.2 kΩ 上拉；复位网络含 SW1、R10、C3。 |
+| **Sensor 模组** | `camera_datasheet.pdf` (`AS-AG638A32M2-50`) | 内部 Sensor 为 SmartSens SC2336；1/3" 2MP CMOS；最大 1920×1080@30 fps；RAW10/RAW8 格式；2-lane MIPI CSI-2 D-PHY；输入时钟 24 MHz；7-bit SCCB/I2C 地址 `0x30`；Sensor ID 寄存器 `0x3107=0xcb`、`0x3108=0x3a`（真机已实测验证）。 |
+| **SoC 与 Errata** | `esp32-p4_datasheet_cn.pdf` / `esp-chip-errata-zh_CN-master-esp32p4.pdf` | SoC 为 ESP32-P4NRW32X revision v3.2；封装内 32 MB PSRAM；早期 v3.0 勘误 MSPI-750/751/DMA-767 已在 v3.1 硬件修复，当前 v3.2 不受影响；但 DMA 描述符 4 字节对齐、帧缓冲区 64 字节 Cache 行对齐及 CPU/DMA 间 Cache Invalidate/Clean 同步仍为硬性约束。 |
+
+### 13.3 SC2336 官方初始化表来源与许可证台账
+
+1. **官方上游代码仓**：`https://github.com/espressif/esp-video-components`
+2. **组件路径**：`esp_cam_sensor/sensors/sc2336/`
+3. **许可证**：`Apache-2.0`（`SPDX-License-Identifier: Apache-2.0`，`SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD`）。
+4. **审计确认 Commit SHA**：`2e924b614d7095898ac88c7ba34d43a6c98261ea`（2026-06-17）及 underlying `3620887638419f7afbe4aa3a909422c640b14061`（寄存器表头文件分离）。
+5. **源文件列表与审计结论**：
+   - `esp_cam_sensor/sensors/sc2336/sc2336.c`：包含传感器增益映射表、曝光控制算法及 V4L2 参数换算。
+   - `esp_cam_sensor/sensors/sc2336/include/sc2336.h`：公共头文件与 Sensor ID 定义。
+   - `esp_cam_sensor/sensors/sc2336/private_include/sc2336_regs.h`：寄存器宏定义。
+   - `esp_cam_sensor/sensors/sc2336/private_include/sc2336_settings.h`：模式表索引入口。
+   - `sc2336_mipi_2lane_24Minput_1920x1080_raw10_30fps.h`：1080p 30 fps RAW10（2-lane MIPI, 24 MHz XVCLK）。
+   - `sc2336_mipi_2lane_24Minput_1920x1080_raw10_25fps.h`：1080p 25 fps RAW10（2-lane MIPI, 24 MHz XVCLK）。
+   - `sc2336_mipi_2lane_24Minput_1280x720_raw10_30fps.h`：720p 30 fps RAW10（2-lane MIPI, 24 MHz XVCLK）。
+   - `sc2336_mipi_2lane_24Minput_640x480_raw10_50fps.h`：VGA 50 fps RAW10（2-lane MIPI, 24 MHz XVCLK）。
+6. **首发带起模式推荐**：
+   - 第一阶段（CAM-003/004/005）：推荐选用 `24Minput_1280x720_raw10_30fps` 或 `24Minput_1920x1080_raw10_25fps` 作为基准测试模式，匹配板载 24 MHz Y1 晶振与 2-lane 物理布线。
+
+### 13.4 底层 HAL 与 NuttX 驱动适配差异分析
+
+1. **底层 HAL 现状（`esp-hal-3rdparty` commit `8d0a898910084...`）**：
+   - `components/esp_hal_cam/mipi_csi_hal.c`（78 行）：包含 PHY PLL 频率选择、PHY 与 Host 复位、Active Lane 配置、Bridge 宽高与 FIFO 阈值配置。**代码轻量且无 OS 依赖，可直接作为 NuttX CSI lower-half 的底层调用**。
+   - `components/esp_hal_cam/esp32p4/mipi_csi_periph.c`：包含外设寄存器基地址与中断号定义。
+   - `components/upper_hal_cam/csi/src/esp_cam_ctlr_csi.c`（Upper HAL，641 行）：大量依赖 FreeRTOS 队列、IDF 堆分配、电源管理锁等。**严禁整文件复制**，必须在 NuttX 中实现原生 `struct imgdata_s` 接口。
+2. **DMA 与内存/Cache 一致性**：
+   - ESP32-P4 的 MIPI CSI Bridge 数据由 DW-GDMA 搬运至内存。
+   - DMA Descriptor 需 4 字节对齐，PSRAM 帧缓冲区需 64 字节 Cache-line 对齐。
+   - 在 CPU 读取 PSRAM 帧数据前，必须调用 Cache Invalidate（如 `up_invalidate_dcache`），严禁通过关闭 Cache 绕过一致性问题。
+3. **NuttX Video 框架对齐**：
+   - **Upper-half**：NuttX 已有 `drivers/video/v4l2_cap.c`，通过 `capture_register()` 注册 `/dev/video0`，提供标准 V4L2 ioctl 支持。
+   - **Lower-half (`struct imgdata_s`)**：由 ESP32-P4 MIPI CSI 控制器驱动实现 `init`、`uninit`、`set_buf`、`start_capture`、`stop_capture`。
+   - **Sensor Subdevice (`struct imgsensor_s`)**：由 SC2336 驱动实现 `init`、`uninit`、`set_fmt`、`stream_on`、`stream_off`。
+
+### 13.5 仓库边界与后续 Commit 拆分计划
+
+- **公共 NuttX 仓 (`nuttx/`)**：
+  - `arch/risc-v/src/esp32p4/esp32p4_mipi_csi.c`：ESP32-P4 MIPI CSI 控制器 lower-half 实现。
+  - `arch/risc-v/src/esp32p4/hal_esp32p4.mk` 与 `Kconfig`：引入 CSI HAL 源码与配置项。
+  - `arch/risc-v/src/esp32p4/esp32p4_dma.c` / DW-GDMA 支持。
+- **团队专属仓 (`contest2026_345_.../`)**：
+  - `board/contest_board/src/esp32p4_camera.c`：板级 Camera 上电时序、复位控制、I2C 绑定与 `capture_register()`。
+  - `board/contest_board/configs/nsh/defconfig`：开启 Camera/Video 相关 Kconfig。
+  - `app/sc2336_stream/` 与 `app/camera_smoke/`：Sensor 控制测试与视频帧 Smoke 验证 App。
+  - `PORTING_NOTES.md` 与 `hardware-logs/`：阶段记录与真机日志。
+
+- **后续增量提交拆分路线**：
+  1. `团队仓 Commit A (CAM-002)`: `docs: record SC2336 source and camera dependency ledger`
+  2. `团队仓 Commit B (CAM-003, 当前)`: `camera: add SC2336 minimal initialization and stream control`
+  3. `NuttX 仓 Commit C (CAM-004)`: `risc-v: add ESP32-P4 MIPI CSI low-level controller support`
+  4. `NuttX 仓 Commit D (CAM-005)`: `video: add ESP32-P4 CSI DMA and PSRAM frame capture support`
+  5. `团队仓 Commit E (CAM-006)`: `boards: register ESP32-P4X camera and add frame smoke app`
+  6. `团队仓 Commit F (CAM-007/008)`: `test: add camera stability evidence and documentation for Gate G2`
+
+## 14. CAM-003：SC2336 最小初始化与 Stream Control 控制面实现
+
+### 14.1 本轮目标与范围边界
+
+- **唯一可观察目标**：在团队专属仓实现 SC2336 传感器控制面最小驱动与测试入口：
+  1. 保持并增强只读 ID 探测（`0x3107/0x3108 = 0xcb3a`）；
+  2. 实现传感器软件复位（`0x0103 = 0x01`）与复位后恢复验证；
+  3. 导入官方已审计的 2-lane 24 MHz XVCLK 模式初始化表（720p 30 fps / 1080p 25 fps RAW10），完成寄存器写入与关键寄存器读回校验；
+  4. 实现流控制：`stream-on`（`0x0100 = 0x01`）与 `stream-off`（`0x0100 = 0x00` 待机模式）；
+  5. 支持多轮流状态切换压力测试（`cycle <N>`）。
+- **边界纪律**：本阶段只操作 I2C/SCCB 控制面，不启用 MIPI CSI 接收、不分配 DMA 描述符与帧缓冲区，不宣称“已获得图像帧”。
+
+### 14.2 修改与新增文件
+
+- 新增：[`app/sc2336_probe/sc2336_tables.h`](file:///home/uleemos/openvela-contest/contest2026_345_daxueshiyoushigeiyincangsinianwoquehunranbuzhi/app/sc2336_probe/sc2336_tables.h)（包含 720p 30 fps 及 1080p 25 fps 2-lane 24 MHz 初始化寄存器表与宏定义）。
+- 修改：[`app/sc2336_probe/sc2336_probe_main.c`](file:///home/uleemos/openvela-contest/contest2026_345_daxueshiyoushigeiyincangsinianwoquehunranbuzhi/app/sc2336_probe/sc2336_probe_main.c)（重构为支持 `probe`、`reset`、`init`、`stream-on`、`stream-off`、`test` 与 `cycle` 子命令的传感器控制面测试工具）。
+- 修改：[`app/sc2336_probe/Makefile`](file:///home/uleemos/openvela-contest/contest2026_345_daxueshiyoushigeiyincangsinianwoquehunranbuzhi/app/sc2336_probe/Makefile)（栈大小调整为 4096 字节）。
+- 修改：[`app/sc2336_probe/README.md`](file:///home/uleemos/openvela-contest/contest2026_345_daxueshiyoushigeiyincangsinianwoquehunranbuzhi/app/sc2336_probe/README.md)（更新命令用法与子命令说明）。
+
+### 14.3 构建与固件产物
+
+- **构建命令**：
+  ```bash
+  cd /home/uleemos/openvela-contest
+  PATH=/tmp/openvela-esptool-venv/bin:$PATH \
+    ./build.sh vendor/openvela/boards/contest2026_345_board/configs/nsh -j16
+  ```
+- **编译状态**：退出码 0，无警告。
+- **固件产物**：
+  - `nuttx`：596888 bytes，SHA-256 `181b4894ee0f978b391ab70c6e267d3f912db6f228bf041811f096f3bc244c71`
+  - `nuttx.hex`：640793 bytes，SHA-256 `193f76d175ff9a96fa093382752f325cc1086b66612c00184abd6b6573aff7b2`
+  - `nuttx.bin`：281476 bytes，SHA-256 `a402dfccc58491c0236b9d6eeceef403d4129bf04488fba63ec94e2a8c575ce3`
+  - `image_info`：ESP32-P4、16 MB、DIO、80 MHz、Entry `0x4ff4811c`，校验和 `0x67` 有效。
+
+### 14.4 真机串口验证与测试结果
+
+- **烧录命令**：
+  ```powershell
+  python.exe -m esptool -c esp32p4 -p COM3 -b 921600 write-flash `
+    --flash-size 16MB --flash-mode dio --flash-freq 80m `
+    0x2000 openvela-esp32p4-nuttx.bin
+  ```
+  Hash of data verified，成功写入 `0x2000` 并完成硬复位。
+
+- **验证项目与结果**：
+  1. **系统基础环境**：`uname -a` 返回 `NuttX 13.0.0 d49dc5e5a9c`；`free` 显示 Umem 33554432 bytes (PSRAM)；`ls /dev` 确认 `/dev/i2c0` 正常注册挂载。
+  2. **只读 ID 探测 (`sc2336_probe probe`)**：SCCB 地址 `0x30`，读回 `0x3107=0xcb`、`0x3108=0x3a`，组合 ID `0xcb3a`，**PASS**。
+  3. **软件复位恢复 (`sc2336_probe reset`)**：写入 `0x0103 = 0x01` 触发软复位，延时 20 ms 后重新探测，ID `0xcb3a` 正常恢复，**PASS**。
+  4. **720p 30 fps 全流程测试 (`sc2336_probe test 720p`)**：
+     - Step 1: Probe ID (0xcb3a) MATCH
+     - Step 2: Soft Reset PASS
+     - Step 3: Write Mode Table 165 registers PASS
+     - Step 4: Verify Key Registers (CLK_CTRL=0x05, ANA_INIT_1=0x80, ANA_INIT_2=0x80, VTS=1500) PASS
+     - Step 5: Stream ON (`0x0100=0x01`, I2C ACK OK) PASS，保持 200 ms
+     - Step 6: Stream OFF (`0x0100=0x00`, I2C ACK OK) PASS
+     - 结论：**ALL PASS**。
+  5. **720p 30 fps 流切换循环压力测试 (`sc2336_probe cycle 10 720p`)**：连续 10 轮 Stream-ON / Stream-OFF 切换，全部获得 I2C ACK 响应，**10/10 PASS**。
+  6. **1080p 30 fps 全流程与循环测试 (`sc2336_probe test 1080p` & `cycle 10 1080p`)**：下发 149 个模式寄存器，关键寄存器校验与 10 轮流切换压力测试全部 **PASS**。
+  7. **1080p 25 fps 全流程与循环测试 (`sc2336_probe test 1080p25` & `cycle 10 1080p25`)**：下发 130 个模式寄存器，关键寄存器校验与 10 轮流切换压力测试全部 **PASS**。
+
+### 14.5 证据文件归档
+
+- 原始串口日志：[`hardware-logs/esp32p4-sc2336-control-smoke-2026-08-19.log`](hardware-logs/esp32p4-sc2336-control-smoke-2026-08-19.log)
+- 日志 SHA-256：`ef5306745452f58755b65bd013dfaee855ba9cb08790815b7d347cba37c82934`
+- 标记状态：**peripheral-tested (SC2336 Control Plane & Stream Control Verified on Hardware)**。
+
+### 14.6 下一步行动
+
+1. **CAM-004（公共 NuttX 仓）：ESP32-P4 MIPI CSI 最小控制器与 D-PHY 接收链路**：
+   - 在 `nuttx/arch/risc-v/src/esp32p4/` 中实现基于 HAL 的 CSI lower-half。
+   - 在 `hal_esp32p4.mk` 中引入 `components/esp_hal_cam/mipi_csi_hal.c` 与相关底层头文件。
+   - 验证 CSI 控制器初始化与 D-PHY clock/data lane 状态。
+2. **CAM-005（公共 NuttX 仓）：CSI DMA 描述符与 PSRAM frame capture 支持**。
+3. **CAM-006（团队仓）：板级 Camera 驱动注册 (`/dev/video0`) 与取帧 Smoke App**。
