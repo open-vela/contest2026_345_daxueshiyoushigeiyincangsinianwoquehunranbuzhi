@@ -1,0 +1,12 @@
+# Build artifacts and intermediate files
+*.o
+*.a
+*.built
+.built
+*.depend
+.depend
+Make.dep
+*.bin
+*.hex
+*.elf
+*.map
