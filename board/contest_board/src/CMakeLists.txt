@@ -9,3 +9,7 @@ endif()
 if(CONFIG_ESPRESSIF_I2C0)
   target_sources(board PRIVATE board_i2c.c)
 endif()
+
+if(CONFIG_AUDIO_ES8311)
+  target_sources(board PRIVATE board_audio.c)
+endif()

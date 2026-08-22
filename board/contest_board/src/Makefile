@@ -20,4 +20,8 @@ ifeq ($(CONFIG_ESPRESSIF_SPIFLASH_SMARTFS),y)
 CSRCS += board_spiflash.c
 endif
 
+ifeq ($(CONFIG_AUDIO_ES8311),y)
+CSRCS += board_audio.c
+endif
+
 include $(TOPDIR)/boards/Board.mk
