@@ -1,10 +1,10 @@
 # ESP32-P4 openvela 开发接力文档
 
-> 状态日期：2026-08-19（Asia/Shanghai）
+> 状态日期：2026-08-22（Asia/Shanghai）
 >
 > 交接目标：让新的 AI 工具无需依赖此前聊天记录，即可从正确 Git 基线继续开发，并保持相同的仓库边界、硬件证据、构建验证和 PR 质量。
 >
-> 当前阶段：Gate G1 已通过；CAM-002 官方 SC2336 初始化表来源与依赖审计已完成；CAM-003 传感器最小初始化与 Stream Control 控制面已通过；CAM-004 ESP32-P4 MIPI CSI 控制器与 D-PHY 接收链路已实现并通过真机串口验证与日志归档；下一主线是 CAM-005（CSI DMA 与 PSRAM 取帧驱动）与 Gate G2。
+> 当前阶段：Gate G1 已通过；CAM-002～CAM-004（SC2336 探测、流控、CSI-2 Host & D-PHY 硬件链路锁定）已完成并归档；AUD-001（ES8311 音频编解码器 + ESP32-P4 I2S0 底层驱动 + 板级功放使能 + `es8311_audio` CLI 测试套件）已全部实现并通过 nxstyle 与全量构建验证，对应独立 PR 已分别推送至双仓 Fork；等待后续实板联调；CAM-005（CSI DW-GDMA 取帧驱动）保留在 WIP 分支以便后续针对性深入调试。
 >
 > 本文是当前状态和执行规则的入口；详细历史证据继续以 `PORTING_NOTES.md` 和 `hardware-logs/` 为准。
 
@@ -19,18 +19,14 @@
    `0x00f00000-0x00ffffff` 作为安全 MTD/SmartFS 测试区并挂载为 `/data`。
 5. Windows 串口为 `COM3`，USB 设备是 ESP32-P4 USB Serial/JTAG；WSL 当前没有
    `/dev/ttyACM*`，烧录和串口自动化通过 Windows Python/esptool 操作 COM3。
-6. Camera 子板已经通过 MIPI FPC 连接，模组是 `AG638A32M2`，内部 sensor 是
-   SC2336。SCCB 7-bit 地址 `0x30`，只读 ID `0x3107/0x3108 = 0xcb/0x3a` 已实测。
-7. 不要整目录复制 Apache NuttX，不要直接 cherry-pick 大型 P4 提交。必须按
-   “依赖差异 → 最小实现 → 构建 → 真机证据 → 独立 commit”推进。
+6. Camera 子板通过 MIPI FPC 连接，内部 sensor 是 SC2336 (SCCB 0x30)。
+7. Audio 子系统：板载 Everest Semi ES8311 Codec (I2C0 0x18)，I2S0 (MCLK=GPIO13, BCLK=GPIO12, WS=GPIO10, DOUT=GPIO9, DIN=GPIO11)，板载功放 PA_EN=GPIO53。
 8. 团队专属仓和公共 `nuttx` 是两个独立 Git 仓、两个独立 PR 流程。绝不能在
    一笔提交或一个 PR 中混合二者。
-9. 团队仓 PR #1～#5 已 Rebase and merge。公共 NuttX PR #340 仍为 Open；其
-   代码可以继续作为本地联调基线，但不能声称已进入赛事正式 NuttX 基线。
-10. CAM-002～CAM-004 已全部完成并具备真机全流程证据：SC2336 软复位/流控/多模式配置通过，
-    ESP32-P4 MIPI CSI-2 Host 控制器/D-PHY 物理层/Bridge 驱动在公共 nuttx 仓实现并通过 nxstyle，
-    真机联动测试 720p/1080p D-PHY 高速流接收全部 ALL PASS（零 PHY/Packet 致命中断）；
-    下一阶段推进 CAM-005（CSI DMA 与 PSRAM 帧捕获驱动）。
+9. 当前双仓 Audio PR 已推送：
+   - 公共 `nuttx`: `feat/esp32p4-i2s-audio` -> `open-vela/nuttx:feat/esp32p4-soc-contest2026`
+   - 团队仓: `feat/esp32p4-audio-es8311` -> `open-vela/contest2026_345_...:dev-ai-contest-2026`
+10. 实板不在手边时的接力规则：所有代码和构建均需在仿真与 nxstyle 层面 100% 严谨闭环；硬件验证清单和测试命令必须详细记录，待板卡连接后按既定步骤执行并归档硬件日志。
 
 ## 1. 仓库与远端管理背景
 
@@ -850,12 +846,26 @@ SHA-256。不要只在聊天中报告 PASS。
 
 ### 14.2 下一步任务清单（Next Actions）
 
-1. **CAM-004（公共 NuttX 仓）：ESP32-P4 MIPI CSI 最小控制器与 D-PHY 接收链路**：
-   - 在 `nuttx/arch/risc-v/src/esp32p4/esp32p4_mipi_csi.c` 中实现基于 HAL 的 CSI lower-half。
-   - 在 `hal_esp32p4.mk` 中引入 `components/esp_hal_cam/mipi_csi_hal.c` 与相关底层头文件。
-   - 验证 CSI 控制器初始化与 D-PHY clock/data lane 状态。
-2. **CAM-005（公共 NuttX 仓）：CSI DMA 描述符与 PSRAM frame capture 支持**。
-3. **CAM-006（团队仓）：板级 Camera 驱动注册 (`/dev/video0`) 与取帧 Smoke App**。
+1. **AUD-001 实板验证（待板卡连接后执行）**：
+   - 烧录最新固件：`./build.sh vendor/openvela/boards/contest2026_345_board/configs/nsh -j16`
+   - NSH 验证步骤：
+     ```bash
+     # 1. 探测 ES8311 芯片并校验 /dev/audio/pcm0 与 /dev/audio/pcm_in0 节点
+     nsh> es8311_audio probe
+
+     # 2. 读取并打印 ES8311 全部寄存器（0x00 .. 0x47）
+     nsh> es8311_audio dump
+
+     # 3. 播放 1000 Hz 正弦波纯音（持续 3 秒，经 GPIO53 功放从板载扬声器发出声音）
+     nsh> es8311_audio tone 1000 3
+
+     # 4. 从板载模拟麦克风录制音频（持续 3 秒，并计算峰值与 RMS 能量）
+     nsh> es8311_audio record 3 /data/rec.raw
+     ```
+   - 归档实板日志至 `hardware-logs/esp32p4-audio-es8311-smoke-YYYY-MM-DD.log` 并计算 SHA-256。
+2. **CAM-005（公共 NuttX 仓 & 团队仓）：CSI DW-GDMA DMA 超时分析与 PSRAM 取帧调通**：
+   - 当前 WIP 已保存在 `feat/esp32p4-csi-wip` (nuttx) 和 `feat/esp32p4-csi-dma` (team)。
+   - 核心任务：结合 `sc2336_probe capture` 超时快照，分析 D-PHY HS 接收到 Bridge FIFO 写入及 DW-GDMA 握手时序。
 
 ## 15. 可直接交给另一 AI 的启动提示词
 
@@ -865,20 +875,18 @@ VelaFit AI 项目。工作区为 /home/uleemos/openvela-contest。
 
 开始前必须完整阅读：
 1. 专属仓 ESP32P4_AI_HANDOFF.md
-2. 专属仓 PORTING_NOTES.md（重点阅读第 13、14 节）
+2. 专属仓 PORTING_NOTES.md（重点阅读第 15、16 节）
 3. .agents/skills/openvela-esp32p4-porting/SKILL.md 及其直接引用的 references
-4. /home/uleemos/pdf & md/VelaFit AI Competition Master Project Plan.md
-5. /home/uleemos/pdf & md/openvela-esp32p4x-porting-checklist.md
 
 严格遵守双仓边界：公共 ESP32-P4 SoC/driver 放 nuttx，板级/应用/日志/文档放团队
 专属仓。不要整目录复制 Apache，不要盲目 cherry-pick，不要清理未知工作树，不要
-提交构建产物。凡涉及硬件先运行 hardware-docs-preflight.sh，并以 V1.8/C6 原理图、
-datasheet、TRM、errata 为依据。
+提交构建产物。凡涉及硬件先以 V1.8/C6 原理图、datasheet、TRM、errata 为依据。
 
-当前状态：G1 已通过；CAM-002（依赖审计）已完成；CAM-003（SC2336 软复位、初始化表与
-流控制驱动）已在团队仓实现并真机验证通过（日志 hardware-logs/esp32p4-sc2336-control-smoke-2026-08-19.log）。
-下一任务：
-启动 CAM-004：在 nuttx 仓中实现 ESP32-P4 MIPI CSI 最小控制器与 D-PHY 接收链路。
+当前状态：
+1. AUD-001（ES8311 音频子系统与 CLI 测试工具）已全部实现并通过 nxstyle 和编译，
+   PR 分支已推送至 Fork 远端（nuttx: feat/esp32p4-i2s-audio, team: feat/esp32p4-audio-es8311）。
+   等待实板连接后运行 es8311_audio 测试套件并归档硬件日志。
+2. CAM-005（CSI DW-GDMA 取帧调试）暂存在 feat/esp32p4-csi-wip / feat/esp32p4-csi-dma 分支。
 ```
 
 ## 16. 接力文档维护规则
@@ -894,3 +902,4 @@ datasheet、TRM、errata 为依据。
 
 本文应始终回答四个问题：现在从哪个 SHA 开始、哪些事实真机验证过、下一项最小
 工作是什么、完成后应该向哪个仓和哪个 base branch 提交 PR。
+
