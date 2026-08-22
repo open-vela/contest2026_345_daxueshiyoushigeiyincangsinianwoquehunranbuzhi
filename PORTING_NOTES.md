@@ -876,3 +876,44 @@ SHA-256 `9ef17f2c8a1e7ff3f97763288001966001123fc986a2e0e771005ef2bc7f85e4`。
 2. **CAM-006（团队仓）：板级 Camera 驱动注册 (`/dev/video0`) 与取帧 Smoke App**。
 3. **CAM-007/CAM-008（团队仓）：Gate G2 视频流稳定性测试与全量日志归档**。
 
+---
+
+## 16. ES8311 + I2S0 音频子系统移植与验证 (2026-08-22)
+
+### 16.1 硬件引脚与架构映射
+
+针对 **ESP32-P4X Function EV Board V1.8** 实板电路：
+- **控制总线 (I2C0)**：
+  - `SDA = GPIO7`, `SCL = GPIO8`，I2C0 挂载，从机地址 `0x18`，经 I2C 探测已确认芯片 ID 寄存器 `0xFD=0x83, 0xFE=0x11, 0xFF=0x01`（Everest Semiconductor ES8311）。
+- **音频数据总线 (I2S0)**：
+  - `MCLK`: **GPIO13** (`I2S0_MCLK_PAD_OUT_IDX`, `LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s0_mclk_en = 1`)
+  - `BCLK / SCLK`: **GPIO12** (`I2S0_O_BCK_PAD_OUT_IDX`, Master 模式)
+  - `WS / LRCK`: **GPIO10** (`I2S0_O_WS_PAD_OUT_IDX`, Master 模式)
+  - `DOUT (TX / Playback)`: **GPIO9** (`I2S0_O_SD_PAD_OUT_IDX` -> ES8311 SDIN)
+  - `DIN (RX / Record)`: **GPIO11** (`I2S0_I_SD_PAD_IN_IDX` <- ES8311 SDOUT)
+- **功放控制 (Power Amplifier)**：
+  - `PA_EN / SPK_EN`: **GPIO53**（高电平使能板载功放驱动扬声器）。
+
+### 16.2 驱动分层与架构实现
+
+1. **ESP32-P4 I2S Lower-Half 架构驱动 (`arch/risc-v/src/esp32p4/esp32p4_i2s.c`)**：
+   - 适配 NuttX 标准 `i2s_dev_s` 与 `i2s_ops_s` 操作集：`i2s_txchannels`, `i2s_txsamplerate`, `i2s_txdatawidth`, `i2s_send`, `i2s_rxchannels`, `i2s_rxsamplerate`, `i2s_rxdatawidth`, `i2s_receive`, `i2s_getmclkfrequency`, `i2s_setmclkfrequency`。
+   - **AHB-GDMA 双向通道**：绑定 `SOC_GDMA_TRIG_PERIPH_I2S0` (3)，为 TX/RX 分配链表描述符队列（支持 `CONFIG_ESP32P4_I2S_MAXINFLIGHT` 并发缓冲）。
+   - **中断与工作队列调度**：挂载 `ETS_AHB_PDMA_OUT_CH0_INTR_SOURCE`（TX EOF）与 `ETS_AHB_PDMA_IN_CH0_INTR_SOURCE`（RX SUC EOF），在 ISR 中更新传输队列并交由高优先级工作队列 `HPWORK` 触发 `es8311_processdone` 完成回调。
+   - **精确时钟分频**：采用 160 MHz PLL 时钟源，结合 `i2s_hal_calc_mclk_precise_division` 动态计算 MCLK 与 BCLK 整数/小数分频比，标准 44.1 kHz/48 kHz/16 kHz 采样率零偏差输出。
+2. **ES8311 编解码器驱动适配 (`drivers/audio/es8311.c`)**：
+   - 修复 missing `<nuttx/mutex.h>` 引起的 `nxmutex_lock`/`nxmutex_unlock` 未定义链接错误。
+3. **板级初始化与设备注册 (`board/contest_board/src/board_audio.c`)**：
+   - 自动初始化 I2C0 与 I2S0 实例，配置 GPIO53 功放引脚输出高电平；
+   - 注册 `/dev/audio/pcm0`（播放设备）与 `/dev/audio/pcm_in0`（录音设备）。
+4. **CLI 测试工具 (`app/es8311_audio/es8311_audio_main.c`)**：
+   - `probe`: 探测 ES8311 芯片 ID 与音频节点就绪状态；
+   - `dump`: 打印 ES8311 0x00 .. 0x47 全部寄存器配置；
+   - `tone <freq> <duration_sec>`: 生成 44.1 kHz 16-bit 双声道正弦波并通过 `/dev/audio/pcm0` 驱动扬声器播放；
+   - `record <duration_sec> [file]`: 从板载麦克风录制 PCM 音频，分析峰值幅度与 RMS 能量指标，并支持存储至 SmartFS 分区。
+
+### 16.3 规范与构建验证
+
+- **代码规范**：所有新增/修改文件（`esp32p4_i2s.h`, `esp32p4_i2s.c`, `board_audio.h`, `board_audio.c`, `board_boot.c`, `es8311_audio_main.c`）经 `nxstyle` 工具全量检查，**0 errors, 0 warnings (100% PASS)**。
+- **符号核验**：`riscv-none-elf-nm` 证实 `board_audio_initialize`, `es8311_audio_main`, `es8311_initialize`, `esp32p4_i2sbus_initialize` 全部成功编入固件 ELF。
+- **构建输出**：`nuttx.bin` 成功生成，Exit Code 0。

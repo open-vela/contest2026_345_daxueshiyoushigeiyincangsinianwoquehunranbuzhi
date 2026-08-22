@@ -17,6 +17,7 @@
 #include "board_gpio.h"
 #include "board_i2c.h"
 #include "board_spiflash.h"
+#include "board_audio.h"
 
 /****************************************************************************
  * Public Functions
@@ -60,6 +61,14 @@ int board_app_initialize(uintptr_t arg)
 
 #ifdef CONFIG_ESPRESSIF_SPIFLASH_SMARTFS
   ret = board_spiflash_initialize();
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
+#if defined(CONFIG_AUDIO_ES8311) && defined(CONFIG_ESP32P4_I2S0)
+  ret = board_audio_initialize();
   if (ret < 0)
     {
       return ret;

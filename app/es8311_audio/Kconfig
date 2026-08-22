@@ -1,0 +1,12 @@
+#
+# For a description of the syntax of this configuration file, see the
+# kconfig-language.txt file in the NuttX tools repository.
+#
+
+config LVX_USE_DEMO_CONTEST2026_345_ES8311_AUDIO
+	bool "Contest 2026 team 345 ES8311 I2S Audio test utility"
+	default n
+	depends on AUDIO && AUDIO_ES8311 && ESP32P4_I2S0
+	---help---
+		Enable the ESP32-P4 ES8311 + I2S Audio probe, tone generator,
+		microphone recording, and loopback test utility.
