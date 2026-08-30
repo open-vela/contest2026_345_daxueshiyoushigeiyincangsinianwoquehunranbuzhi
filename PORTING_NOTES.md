@@ -1252,6 +1252,53 @@ nsh> velafit_ai touch 15
 | **TEST-TP-04** | 多点触控追踪 (Multi-Touch) | `velafit_ai touch 20` | 2~5 指同时按下，各指 ID 独立追踪无跳变 | 待上板验证 |
 | **TEST-TP-05** | 手势识别测试 (Gestures) | `velafit_ai touch 20` | 上下左右划动识别出 `SLIDE_*`，轻敲识别为 `TAP` | 待上板验证 |
 
+## 26. ESP32-P4 SDMMC 4-Bit Host 控制器与 MicroSD FAT32 驱动
+
+### 26.1 硬件背景与原理图设计
+根据 `SCH_ESP32-P4X_FUNCTION_EV_BOARD_V1.8_20260805.pdf`（Sheet 5: 05_Ethernet_SDMMC_WiFi）及 `esp32p4` 技术手册：
+1. **MicroSD 卡槽 (J21)**：
+   - `CLK`：GPIO43（IOMUX Slot 0 Dedicated）
+   - `CMD`：GPIO44（IOMUX Slot 0 Dedicated，上拉）
+   - `DAT0`：GPIO39（IOMUX Slot 0 Dedicated，上拉）
+   - `DAT1`：GPIO40（IOMUX Slot 0 Dedicated，上拉）
+   - `DAT2`：GPIO41（IOMUX Slot 0 Dedicated，上拉）
+   - `DAT3/CD`：GPIO42（IOMUX Slot 0 Dedicated，上拉）
+   - 供电：`PHY_3V3` / 3.3V 供电；
+2. **总线工作模式**：
+   - 4-bit 宽总线模式（`CONFIG_SDIO_WIDTH_D1_ONLY` 关闭，`SDIO_CAPS_4BIT`）；
+   - 初始化时钟 400kHz（ID 模式），数据传输时钟 20MHz（高速传输）。
+
+### 26.2 驱动分层架构
+1. **SoC 控制器层 (`nuttx/arch/risc-v/src/esp32p4/esp32p4_sdmmc.c`)**：
+   - 实现 NuttX 标准 `struct sdio_dev_s` 接口（`reset`, `status`, `widebus`, `clock`, `sendcmd`, `recvsetup`, `sendsetup`, `waitresponse`, `recv_r1` ~ `recv_r7`）；
+   - 寄存器直连 ESP32-P4 SDMMC 控制器基址与 `buffifo` 硬件 FIFO；
+   - 开启外设总线时钟（`HP_SYS_CLKRST.soc_clk_ctrl1.reg_sdmmc_sys_clk_en` / `HP_SYS_CLKRST.peri_clk_ctrl01.reg_sdio_ls_clk_en`）；
+2. **板级初始化与自动挂载 (`board/contest_board/src/board_sdmmc.c`)**：
+   - 调用 `esp32p4_sdmmc_init(0)` 初始化 Slot 0；
+   - 调用 `mmcsd_slotinitialize(0, sdio)` 注册 `/dev/mmcsd0` 块设备；
+   - 自动执行 `nx_mount("/dev/mmcsd0", "/sdcard", "vfat", 0, NULL)` 将 FAT32 文件系统挂载至 `/sdcard`；
+   - 自动创建 `/sdcard/velafit/media` 与 `/sdcard/velafit/logs` 目录；
+3. **应用存储层智能路由 (`app/velafit_ai/storage/velafit_storage.c`)**：
+   - 系统检测到 `/sdcard` 挂载时，训练视频、高清抓拍、历史日志优先保存在外部大容量 MicroSD 卡中；
+   - 未插卡时自动降级到板载 SPI Flash SmartFS (`/data/velafit`) 或 RAM (`/tmp/velafit`)。
+
+### 26.3 MicroSD 存储读写与吞吐量测试 (`velafit_ai sdcard`)
+```bash
+# 执行 MicroSD 卡读写吞吐量与数据完整性校验
+nsh> velafit_ai sdcard
+```
+* **测试内容**：在 `/sdcard/velafit/media/sd_test.bin` 连续写入与回读 64KB 数据块，测量实际读写吞吐量（MB/s）并校验数据一致性。
+
+### 26.4 板级实机验证清单 (Board Smoke Test Checklist)
+
+| 验证项编号 | 测试项名称 | 测试命令 / 操作 | 预期现象 / 指标要求 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **TEST-SDMMC-01** | SDMMC Host 初始化 | 启动日志 | 输出 `ESP32-P4 SDMMC Slot 0 initialized successfully` | 待上板验证 |
+| **TEST-SDMMC-02** | 块设备节点注册 | `ls /dev/mmcsd0` | `/dev/mmcsd0` 块设备节点存在 | 待上板验证 |
+| **TEST-SDMMC-03** | FAT32 自动挂载 | `df -h` / `mount` | `/sdcard` 挂载为 `vfat` 格式并显示卡容量 | 待上板验证 |
+| **TEST-SDMMC-04** | 文件读写吞吐量与完整性 | `velafit_ai sdcard` | 读写测试通过（Integrity: PASS，速率正常） | 待上板验证 |
+| **TEST-SDMMC-05** | 掉电/拔插保护与降级 | 拔出 TF 卡后启动 | 自动降级为 `/data/velafit`，系统不卡死 | 待上板验证 |
+
 
 
 

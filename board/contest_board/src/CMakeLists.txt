@@ -17,3 +17,7 @@ endif()
 if(CONFIG_INPUT_TOUCHSCREEN)
   target_sources(board PRIVATE board_touch.c)
 endif()
+
+if(CONFIG_ESP32P4_SDMMC)
+  target_sources(board PRIVATE board_sdmmc.c)
+endif()

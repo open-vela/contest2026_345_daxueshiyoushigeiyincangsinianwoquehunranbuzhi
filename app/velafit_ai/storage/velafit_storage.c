@@ -122,6 +122,9 @@ static int load_index_file(void)
 
 int velafit_storage_init(const char *base_path)
 {
+  char sess_dir[160];
+  int ret;
+
   if (base_path != NULL && base_path[0] != '\0')
     {
       strncpy(g_storage_base_path, base_path,
@@ -129,13 +132,29 @@ int velafit_storage_init(const char *base_path)
     }
   else
     {
-      strncpy(g_storage_base_path, VELAFIT_STORAGE_DEFAULT_PATH,
-              sizeof(g_storage_base_path) - 1);
+      /* Check if /sdcard is mounted */
+
+      if (access("/sdcard", F_OK) == 0 &&
+          mkdir(VELAFIT_STORAGE_SDCARD_PATH, 0777) == 0)
+        {
+          strncpy(g_storage_base_path, VELAFIT_STORAGE_SDCARD_PATH,
+                  sizeof(g_storage_base_path) - 1);
+        }
+      else if (access(VELAFIT_STORAGE_SDCARD_PATH, F_OK) == 0)
+        {
+          strncpy(g_storage_base_path, VELAFIT_STORAGE_SDCARD_PATH,
+                  sizeof(g_storage_base_path) - 1);
+        }
+      else
+        {
+          strncpy(g_storage_base_path, VELAFIT_STORAGE_DEFAULT_PATH,
+                  sizeof(g_storage_base_path) - 1);
+        }
     }
 
   /* Create base directory */
 
-  int ret = mkdir(g_storage_base_path, 0777);
+  ret = mkdir(g_storage_base_path, 0777);
   if (ret != 0 && errno != EEXIST)
     {
       /* Fallback to /tmp */
@@ -147,7 +166,6 @@ int velafit_storage_init(const char *base_path)
 
   /* Create sessions directory */
 
-  char sess_dir[160];
   snprintf(sess_dir, sizeof(sess_dir), "%s/sessions",
            g_storage_base_path);
   mkdir(sess_dir, 0777);
