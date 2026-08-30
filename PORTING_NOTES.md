@@ -1103,14 +1103,28 @@ SHA-256 `9ef17f2c8a1e7ff3f97763288001966001123fc986a2e0e771005ef2bc7f85e4`。
    - `velafit_ai plan list`：查看当前内置的全部结构化运动课程；
    - `velafit_ai plan run [tabata|strength|cardio]`：运行指定课程的多阶段离线仿真与自动落盘。
 
-### 22.2 代码规范与固件产物
+## 23. 小米 MIMO 多模态大模型端云协同系统与本地 KWS 唤醒引擎 (2026-08-30)
 
-- **代码规范**：`app/velafit_ai/` 下全部 36 个源文件与头文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
-- **固件产物**：
-  - `nuttx` ELF: 772872 bytes, SHA-256 `7e1ed48154c8c683feb01fadf386a906ce72352d0172898c0388bd6adc2bd87d`
-  - `nuttx.hex`: 836699 bytes, SHA-256 `3d63724c9f600ecdc81de5fba09196b6e564a48d3eed114c7a0edb1cf9a1494c`
-  - `nuttx.bin`: 485592 bytes, SHA-256 `9e2b517412c3771b62df4ec90e6e33f0722c90c767219524c06a7d0651349169`
-  - `image-info`: ESP32-P4, 16MB, DIO, 80MHz, Entry `0x4ff4812a`, Checksum `0x41` (valid).
+### 23.1 本轮架构与功能设计
+
+结合小米 MIMO 多模态大模型矩阵（`mimo-v2.5-pro`, `mimo-v2.5-asr`, `mimo-v2.5-tts-voiceclone`, `mimo-v2.5-tts`, `mimo-v2.5`），确立并实现了完整的端云协同交互系统：
+1. **端侧本地关键词唤醒引擎 (`algo/velafit_kws.c/h`)**：
+   - 麦克风 16kHz 16-bit PCM 定点短时能量与过零率特征匹配；
+   - 状态机：`IDLE` ➔ `LISTENING` ➔ `TRIGGERED` ➔ `CAPTURING_CMD`；
+   - 匹配成功自动触发 `VELAFIT_AUDIO_CUE_WAKEUP`（1046Hz➔1318Hz 叮咚音），并开启 3 秒指令捕获；未唤醒前音频不出芯片，彻底保障隐私。
+2. **端云多模态协议定义 (`include/velafit_mimo_protocol.h`)**：
+   - 定义 ASR 语音请求、MIMO-PRO 运动复盘与下行处方（Prescription）、TTS 响应的标准 JSON 结构体契约。
+3. **MIMO 云端交互客户端与仿真器 (`sync/velafit_cloud_agent.c/h`)**：
+   - 实现 ASR 转录意图解析；
+   - 内置运动生理学推理引擎（根据浅蹲、膝内扣、塌腰等生物力学缺陷精准推导疲劳肌群与纠错处方）；
+   - 模拟 MIMO-TTS 高品质教练语音合成。
+4. **大赛工程实施白皮书 (`docs/VELAFIT_MIMO_CLOUD_INTEGRATION_PLAN.md`)**：
+   - 详细梳理了端云协同全流程时序图、模型分工表与任务跟踪矩阵。
+
+### 23.2 代码规范与构建验证
+
+- **代码规范**：全部 41 个源文件与头文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
+- **构建输出**：`nuttx.bin` 成功生成，Exit Code 0。
 
 
 

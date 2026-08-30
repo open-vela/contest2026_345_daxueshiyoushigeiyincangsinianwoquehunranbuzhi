@@ -887,6 +887,8 @@ SHA-256。不要只在聊天中报告 PASS。
      nsh> velafit_ai storage list
      nsh> velafit_ai storage summary
      nsh> velafit_ai sync mock
+     nsh> velafit_ai kws test
+     nsh> velafit_ai cloud
      nsh> velafit_ai report
 
      # 3. 验证 ES8311 音频子系统
@@ -895,7 +897,7 @@ SHA-256。不要只在聊天中报告 PASS。
      ```
    - 归档实板日志至 `hardware-logs/esp32p4-velafit-ai-smoke-2026-08-30.log` 并记录 SHA-256。
 2. **大赛作品设计说明书编写（`docs/`）**：
-   - 《VelaFit 边缘 AI 健身教练算法与生物力学 FSM 设计白皮书》。
+   - 已完成：《VelaFit 边缘 AI 健身教练算法与生物力学 FSM 设计白皮书》与《小米 MIMO 多模态端云协同系统需求与工程实施白皮书》。
 3. **CAM-005 推进**：
    - 待实板就绪后推进摄像头实时流输入（SC2336 -> CSI DMA）。
 
@@ -907,8 +909,8 @@ VelaFit AI 智能运动体态教练项目。工作区为 /home/uleemos/openvela-
 
 开始前必须完整阅读：
 1. 专属仓 ESP32P4_AI_HANDOFF.md
-2. 专属仓 PORTING_NOTES.md（重点阅读第 15、16、17、18、19、20、21、22 节）
-3. 专属仓 docs/VELAFIT_AI_SYSTEM_DESIGN.md
+2. 专属仓 PORTING_NOTES.md（重点阅读第 15 至 23 节）
+3. 专属仓 docs/VELAFIT_CONTEST_WHITEPAPER.md & docs/VELAFIT_MIMO_CLOUD_INTEGRATION_PLAN.md
 4. .agents/skills/openvela-esp32p4-porting/SKILL.md 及其直接引用的 references
 
 严格遵守双仓边界：公共 ESP32-P4 SoC/driver 放 nuttx，板级/应用/日志/文档放团队
@@ -917,13 +919,12 @@ VelaFit AI 智能运动体态教练项目。工作区为 /home/uleemos/openvela-
 
 当前状态：
 1. VelaFit 边缘 AI 推理引擎、四大运动 FSM 动作矩阵（深蹲、开合跳、俯卧撑、平板支撑）、
-   多媒体专业级教练仪表盘（骨骼拓扑、动态深度柱、纠错指引箭头、HUD）、Tabata/HIIT 间歇
-   训练课程调度器、离线持久化存储与网络解耦同步队列已全部实现，代码 100% 通过 nxstyle
-   检查，NSH 命令 velafit_ai 成功编译入固件（nuttx.bin，485,592 bytes）。
+   多媒体专业级教练仪表盘、Tabata/HIIT 间歇训练课程调度器、本地离线存储与同步队列、
+   端侧本地 KWS 关键词唤醒引擎、小米 MIMO 多模态端云协同客户端与仿真器已全部实现，
+   41 个源码文件 100% 通过 nxstyle 检查，全量固件编译通过（0 Error, 0 Warning）。
 2. AUD-001（ES8311 音频子系统）已完成并已推送 PR。
 3. CAM-005（CSI DW-GDMA 取帧驱动）暂时挂起待后续推进。
-4. 下一步：待实板连接后运行 velafit_ai all / es8311_audio 进行真机验证并归档硬件证据；
-   非实板环境下可继续编写大赛设计说明书白皮书（docs/）或准备 Git 提交流程。
+4. 下一步：待实板连接后运行 velafit_ai all / es8311_audio 进行真机验证并归档硬件证据。
 ```
 
 ## 16. 接力文档维护规则
