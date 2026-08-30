@@ -52,6 +52,7 @@
 #include "velafit_cloud_agent.h"
 #include "velafit_config.h"
 #include "velafit_ppa_bench.h"
+#include "velafit_touch.h"
 
 /****************************************************************************
  * Private Functions
@@ -82,6 +83,7 @@ static void print_usage(void)
   printf("  storage     [cmd]    - Offline Storage (list/info/summary)\n");
   printf("  sync        [cmd]    - Cloud Sync (status/flush/mock)\n");
   printf("  config      [cmd]    - Runtime & Cloud Config (show/set)\n");
+  printf("  touch       [sec]    - Capacitive Touchscreen & Gesture Test\n");
   printf("  kws         [sim]    - Local Keyword Spotting (Wakeup Test)\n");
   printf("  cloud       [sim]    - Xiaomi MIMO Multimodal Cloud Agent\n");
   printf("  report               - Edge-Cloud Workout JSON Report\n");
@@ -973,6 +975,11 @@ int main(int argc, char *argv[])
       const char *arg1 = (argc >= 4) ? argv[3] : NULL;
       const char *arg2 = (argc >= 5) ? argv[4] : NULL;
       cmd_config(sub, arg1, arg2);
+    }
+  else if (strcmp(cmd, "touch") == 0)
+    {
+      int sec = (argc >= 3) ? atoi(argv[2]) : 15;
+      velafit_touch_run_test(sec);
     }
   else if (strcmp(cmd, "kws") == 0)
     {

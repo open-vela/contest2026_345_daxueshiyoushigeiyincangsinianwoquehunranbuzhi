@@ -23,6 +23,7 @@ CFLAGS += -I$(TOPDIR)/arch/risc-v/src/esp32p4
 
 CSRCS += engine/esp_nn_ops.c
 CSRCS += engine/velafit_ppa_bench.c
+CSRCS += engine/velafit_touch.c
 CSRCS += models/velafit_pose_model.c
 CSRCS += models/sample_pose_frames.c
 CSRCS += algo/one_euro_filter.c
