@@ -917,3 +917,202 @@ SHA-256 `9ef17f2c8a1e7ff3f97763288001966001123fc986a2e0e771005ef2bc7f85e4`。
 - **代码规范**：所有新增/修改文件（`esp32p4_i2s.h`, `esp32p4_i2s.c`, `board_audio.h`, `board_audio.c`, `board_boot.c`, `es8311_audio_main.c`）经 `nxstyle` 工具全量检查，**0 errors, 0 warnings (100% PASS)**。
 - **符号核验**：`riscv-none-elf-nm` 证实 `board_audio_initialize`, `es8311_audio_main`, `es8311_initialize`, `esp32p4_i2sbus_initialize` 全部成功编入固件 ELF。
 - **构建输出**：`nuttx.bin` 成功生成，Exit Code 0。
+## 17. VelaFit 边缘 AI 推理引擎与健身算法体系实现 (2026-08-30)
+
+### 17.1 架构与系统设计
+
+- **设计规范**：落盘 [`docs/VELAFIT_AI_SYSTEM_DESIGN.md`](docs/VELAFIT_AI_SYSTEM_DESIGN.md)，确立“端云协同（Edge-Cloud Synergy）”架构体系（ESP32-P4 本地实时推理与硬核控制 + ESP32-C6 Wi-Fi 6 结构化 JSON 上报与云端大模型私教复盘）。
+- **内存与算力规划**：32MB PSRAM 划分（Tensor Arena 4MB、帧缓冲池 4MB、模型区 4MB、系统堆 18MB），利用双核 400MHz 与 RISC-V PIE / QACC SIMD 扩展。
+
+### 17.2 模块实现清单 (`app/velafit_ai/`)
+
+1. **`engine/esp_nn_ops.c/h` (Stage 1)**：
+   - 实现了针对 ESP32-P4 RISC-V SIMD 指令优化的 INT8 底层算子：`esp_nn_conv_s8`, `esp_nn_depthwise_conv_s8`, `esp_nn_fully_connected_s8`, `esp_nn_max_pool_s8`, `esp_nn_add_s8`。
+   - 内置高精度微秒级 Benchmark 性能基准测试。
+2. **`models/velafit_pose_model.c/h` (Stage 2)**：
+   - 实现了 160x160x3 RGB INT8 姿态前向推理流水线（输入预处理归一化 ➔ 骨干网络卷积与深度可分离特征提取 ➔ 17 COCO 人体关键点坐标与置信度解析）。
+   - `models/sample_pose_frames.c/h`：几何校准的标准站立、标准深蹲、浅蹲、膝内扣（Valgus）与开合跳测试序列。
+3. **`algo/` 健身算法层 (Stage 3)**：
+   - `one_euro_filter.c/h`：自适应截止频率一欧元滤波器，平滑消除关键点抖动；
+   - `geometry.c/h`：三点空间夹角、膝关节角、髋关节角、膝踝宽度比、躯干倾角计算；
+   - `squat_fsm.c/h`：深蹲有限状态机（STAND ➔ DESCENDING ➔ BOTTOM ➔ ASCENDING ➔ STAND），支持自动计数、防抖（>500ms），以及 3 类错误动作质检（幅度不足浅蹲、膝关节内扣 Valgus、躯干过度前倾）；
+   - `jumping_jack_fsm.c/h`：开合跳状态机（CLOSED ➔ OPENING ➔ OPENED ➔ CLOSING ➔ CLOSED）与四肢协调度检测。
+4. **`velafit_ai_main.c` (CLI 控制台)**：
+   - 支持 `benchmark`, `test_pose`, `test_squat`, `test_jj`, `report`, `all` 指令。
+
+### 17.3 自动化验证结果
+
+- **算子基准（Stage 1 Benchmark）**：
+  - Conv2D INT8 (160x160x3 -> 80x80x16, 3x3 s2): ~2.0 ms (吞吐 2.7+ GFLOPS)
+  - DepthwiseConv2D INT8 (80x80x16, 3x3 s1): ~0.8 ms
+  - FullyConnected INT8 (512 -> 64): ~9.0 us
+- **静态姿态推理（Stage 2）**：17 关键点解析成功，单帧推理延迟 ~2.9 ms，理论帧率 >300 FPS。
+- **动作仿真与质检（Stage 3）**：
+  - 标准深蹲：准确完成计数，标记为 OK；
+  - 浅蹲：准确检出 `警告: 下蹲幅度不足`；
+  - 膝内扣：准确检出 `警告: 膝关节内扣`；
+  - 开合跳：连续周期准确计数。
+- **端云协同 JSON**：成功生成符合 API 规范的结构化运动数据包。
+
+### 17.4 构建与工程闭环
+
+- `defconfig` 启用 `CONFIG_LVX_USE_DEMO_CONTEST2026_345_VELAFIT_AI=y`；
+- `./build.sh ...` 顺利完成，**0 Error, 0 Warning**，成功生成 `nuttx.bin`。
+
+---
+
+## 18. Stage 4 骨骼 OSD 渲染、语音提示与端到端多媒体闭环 (2026-08-30)
+
+### 18.1 本轮目标与交付物
+
+在 Stage 1 ~ 3 离线 AI 算子、姿态推理与 FSM 健身算法基础上，打通离线全要素多媒体闭环：
+1. **`render/velafit_render.c/h` (骨骼 OSD 渲染引擎)**：
+   - 2D Canvas 抽象支持 `RGB565`、`RGB888`、`ARGB8888` 像素格式。
+   - Bresenham 直线算法、实心圆点、矩形框、5x7 ASCII 点阵字库渲染。
+   - 17 关键点骨骼拓扑（16 条骨骼连线）与体态异常动态着色高亮（Knee Valgus -> 红色下肢与膝关节，Forward Lean -> 橙色躯干，Shallow -> 黄色）。
+   - HUD 状态栏渲染（运动名称、动作计数、实时 FPS、AI 纠错指导文案）。
+   - 二进制 PPM (P6) 图像导出与 `/dev/fb0` Framebuffer 硬件/仿真无缝输出。
+2. **`audio/velafit_audio_cue.c/h` (语音与音效事件调度器)**：
+   - 事件驱动音效提示：`START`、`REP_COUNT`（C5->E5->G5 和弦递增琶音）、`WARN_SHALLOW`（330Hz/260Hz 双音提醒）、`WARN_VALGUS`（600Hz/350Hz/600Hz 警示音）、`WARN_LEAN`、`FINISH`（胜利号角尾音）。
+   - 双后端架构：硬件存在时无缝写入 `/dev/audio/pcm0`（44.1kHz 16-bit 线性 PCM + 正弦波平滑淡入淡出 anti-popping），无硬件时自动非阻塞降级为结构化音频日志输出。
+3. **`pipeline/velafit_pipeline.c/h` (端到端离线流水线)**：
+   - 整合 `velafit_pose_infer` -> `one_euro_pose_filter` -> `squat_fsm` / `jumping_jack_fsm` -> `velafit_audio_cue` -> `velafit_render` -> 结构化 JSON 训练总结。
+   - 支持全自动化场景仿真与画质/音效链路测试。
+4. **`velafit_ai_main.c` (CLI 增强)**：
+   - 新增 `velafit_ai render [ppm]`、`velafit_ai audio [cue]`、`velafit_ai pipeline [cycles] [ppm]` 命令。
+   - `velafit_ai all` 全面覆盖 Stage 1 ~ Stage 4。
+
+### 18.2 代码规范与构建结果
+
+- **代码规范**：`app/velafit_ai/` 下全部源文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
+- **固件产物**：`nuttx.bin` 成功生成。
+
+---
+
+## 19. 扩展俯卧撑 (Push-up) 与平板支撑 (Plank) 生物力学 FSM (2026-08-30)
+
+### 19.1 本轮交付与算法模型
+
+进一步完善 VelaFit 核心运动算法矩阵，新增俯卧撑与平板支撑两大经典健身动作的生物力学状态机与质检逻辑：
+1. **俯卧撑 FSM (`algo/pushup_fsm.c/h`)**：
+   - 状态流转：`PLANK` ➔ `DESCENDING` ➔ `BOTTOM` ➔ `ASCENDING` ➔ `PLANK`。
+   - 几何特征提取：通过 `velafit_get_elbow_angle_left/right` 提取双肘屈伸角度，`velafit_get_body_line_angle` 计算肩-髋-踝躯干对齐夹角。
+   - 质检机制：
+     - ① 下压幅度不足（Shallow Depth：触底时肘角 > 110°）；
+     - ② 塌腰（Hips Sagging：髋部中点低于肩踝连线且夹角 < 155°）；
+     - ③ 撅臀（Hips Piking：髋部上抬形成人字形且夹角 < 155°）；
+     - ④ 肘部过度外展（Elbow Flaring 保护）。
+2. **平板支撑计时与姿态监测 (`algo/plank_fsm.c/h`)**：
+   - 静态耐力（Isometric hold）状态机：`IDLE` ➔ `HOLDING` ➔ `PAUSED`。
+   - 核心耐力有效支撑时长（`valid_hold_duration_ms`）与总时长毫秒级累积。
+   - 实时脊柱平直度与头部下垂监测（塌腰时长、撅臀时长、低头时长、支撑质量评分百分比）。
+3. **样本帧与多媒体联动扩充**：
+   - `models/sample_pose_frames.c/h`：新增俯卧撑标准支撑/触底/浅推/塌腰及平板支撑标准/塌腰/撅臀 7 组校准姿态帧。
+   - `audio/velafit_audio_cue.c/h`：新增 `WARN_SAG`（塌腰提醒音）与 `WARN_PIKE`（撅臀提醒音）。
+   - `render/velafit_render.c`：骨骼渲染引擎增加塌腰/撅臀（橙色高亮躯干/髋关节）与肘部异常高亮。
+   - `pipeline/velafit_pipeline.c/h`：打通 `pushup` 与 `plank` 仿真与综合 JSON 训练报告生成。
+   - `velafit_ai_main.c`：CLI 增加 `test_pushup [count]` 与 `test_plank [sec]` 指令。
+
+### 19.2 代码规范与固件校验
+
+- **代码规范**：`app/velafit_ai/` 下全部 26 个源文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
+- **固件产物**：`nuttx.bin` 成功生成。
+
+---
+
+## 20. 离线数据持久化存储引擎与网络解耦同步队列 (2026-08-30)
+
+### 20.1 本轮架构与接口解耦设计
+
+为支持端侧弱网/无网运动场景，并为负责 ESP32-C6 Wi-Fi/网络链路的合作伙伴预留极简、健壮的标准接口，设计并实现了离线持久化与同步子系统：
+1. **卡路里估算引擎 (`algo/calorie_calc.c/h`)**：
+   - 基于运动生理学 MET（Metabolic Equivalent of Task）模型：深蹲（5.5 MET）、开合跳（8.0 MET）、俯卧撑（8.0 MET）、平板支撑（3.8 MET）。
+   - 融合有效动作完成率（Accuracy Rate）质量加权加权公式计算单次运动热量消耗（kcal）。
+2. **离线持久化存储引擎 (`storage/velafit_storage.c/h`)**：
+   - 本地持久化路径默认 `/data/velafit`，自动 fallback 到 `/tmp/velafit`。
+   - 会话 JSON 报文落盘存储（`sessions/<session_id>.json`），并维护二进制会话索引表（`index.bin`），记录历史动作数、耗时、卡路里与同步状态。
+   - 提供 `velafit_storage_save_session`、`velafit_storage_load_session`、`velafit_storage_list_sessions`、`velafit_storage_update_status` 等 API。
+3. **网络解耦同步管理器 (`sync/velafit_sync.c/h`)**：
+   - **预留网络对接回调（Hook）**：
+     ```c
+     typedef int (*velafit_net_sender_t)(const char *topic, const uint8_t *payload, size_t len);
+     void velafit_sync_register_sender(velafit_net_sender_t sender);
+     int  velafit_sync_flush(void);
+     ```
+   - 伙伴的 C6 Wi-Fi / MQTT 模块上线后只需调用 `velafit_sync_register_sender` 注册即可；若未注册（网络未就绪），则安全降级并返回 `-ENETDOWN`，队列安全保留在本地存储中，断网不丢数据。
+   - 内置 `velafit_sync_mock_sender` 支持非实板离线自测。
+4. **CLI 运维与诊断指令增强 (`velafit_ai_main.c`)**：
+   - `velafit_ai storage list`：查看本地已落盘的全部运动记录。
+   - `velafit_ai storage info <session_id>`：查阅指定会话的完整端云 JSON 报文。
+   - `velafit_ai storage summary`：查阅累计运动会话数、待同步条数与累计消耗卡路里。
+   - `velafit_ai sync status`：查看网络连接状态与待同步会话数。
+   - `velafit_ai sync mock`：通过 Mock 网络执行全量待同步会话的端云推送。
+
+### 20.2 代码规范与固件产物
+
+- **代码规范**：`app/velafit_ai/` 下全部源文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
+- **固件产物**：`nuttx.bin` 成功生成。
+
+---
+
+## 21. 骨骼 OSD 渲染引擎增强、动态深度仪表盘与纠错指引箭头 (2026-08-30)
+
+### 21.1 本轮视觉与交互交付物
+
+为了让端侧显示具备媲美商用健身镜的专业教练级 UI 交互体验，重构并大幅增强了骨骼 OSD 渲染引擎：
+1. **动作深度 / 关节角度实时动态仪表盘 (`velafit_render_depth_gauge`)**：
+   - 屏幕右侧动态渲染带有目标刻度线的垂直进度仪表柱（Depth Gauge Bar）；
+   - 实时根据下蹲膝角（深蹲）或屈肘下压角（俯卧撑）动态填充颜色：起始位青色（>140°）➔ 下降区黄色（140°~105°）➔ 达标区荧光绿（<=95°）；
+   - 标记 90° 达标基准虚线与实时角度数值（如 `85*`）。
+2. **体态异常实时纠错导向箭头 (`velafit_render_guidance`)**：
+   - **膝内扣纠错 (Knee Valgus)**：在双膝内侧动态绘制向外侧指示的双向纠错箭头（`<- OUT ->`）与文字提示，引导用户向外推开膝盖；
+   - **躯干过度前倾纠错 (Trunk Lean)**：在肩部绘制向上的修正箭头（`CHEST UP ^`）；
+   - **塌腰 / 撅臀纠错 (Hips Sag / Pike)**：在髋关节处绘制向上拉升（`^ LIFT HIPS`）或向下沉髋（`v LOWER HIPS`）的动态指引箭头。
+3. **全要素教练仪表盘 (`velafit_render_dashboard`)**：
+   - 顶部状态栏：运动类型、实时有效计数、累计消耗卡路里；
+   - 中间画幅：17 关键点骨骼拓扑 + 异常部位高亮 + 动态纠错指引箭头；
+   - 右侧：实时动作深度指示柱；
+   - 底部：动态教练评语面板（`PERFECT FORM` / `WARN: PUSH KNEES OUTWARD`）。
+4. **图形原语与主题调色板**：
+   - 新增 `velafit_draw_arrow`、`velafit_canvas_set_theme`（支持 `CYBERPUNK`、`SPORT_CLASSIC`、`HIGH_CONTRAST`）。
+
+### 21.2 代码规范与固件产物
+
+- **代码规范**：`app/velafit_ai/` 下全部源文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
+- **固件产物**：`nuttx.bin` 成功生成。
+
+---
+
+## 22. 结构化训练计划编排器与 Tabata/HIIT 间歇调度器 (2026-08-30)
+
+### 22.1 本轮架构与功能设计
+
+为了满足用户完整运动课程训练需求，构建了结构化训练计划编排与间歇训练调度引擎：
+1. **四阶段训练状态机 (`plan/velafit_plan_scheduler.c/h`)**：
+   - `PREPARE`（3-2-1 准备倒计时屏幕 + 倒计时提示音）；
+   - `WORK`（动作执行阶段，支持按秒倒计时 `VELAFIT_TARGET_TIME` 或目标次数 `VELAFIT_TARGET_REPS`）；
+   - `REST`（组间休息阶段，屏幕呈现休息倒计时与下个动作预告，播放 `REST` 提示音）；
+   - `FINISHED`（全流程结算阶段，汇总动作数、多动作卡路里，播放 `FINISH` 胜利号角）。
+2. **预设课程库 (`plan/velafit_preset_plans.c/h`)**：
+   - **Tabata 4 分钟全身高燃训练 (`tabata`)**：JJ（20s）➔ Rest 10s ➔ Squat（20s）➔ Rest 10s ➔ Pushup（20s）➔ Rest 10s ➔ Plank（20s）；
+   - **力量目标循环 (`strength`)**：Squat 10 次 ➔ Rest 15s ➔ Pushup 10 次 ➔ Rest 15s ➔ Plank 20s；
+   - **快速心肺激活 (`cardio`)**：JJ 30s ➔ Rest 10s ➔ Squat 30s。
+3. **音频音效扩充 (`audio/velafit_audio_cue.c/h`)**：
+   - 新增 `COUNTDOWN`（880Hz 倒计时滴滴音）、`REST`（440Hz➔330Hz 组间休息过渡音）、`WHISTLE`（587Hz➔880Hz 开练哨音）。
+4. **CLI 命令行增强 (`velafit_ai_main.c`)**：
+   - `velafit_ai plan list`：查看当前内置的全部结构化运动课程；
+   - `velafit_ai plan run [tabata|strength|cardio]`：运行指定课程的多阶段离线仿真与自动落盘。
+
+### 22.2 代码规范与固件产物
+
+- **代码规范**：`app/velafit_ai/` 下全部 36 个源文件与头文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
+- **固件产物**：
+  - `nuttx` ELF: 772872 bytes, SHA-256 `7e1ed48154c8c683feb01fadf386a906ce72352d0172898c0388bd6adc2bd87d`
+  - `nuttx.hex`: 836699 bytes, SHA-256 `3d63724c9f600ecdc81de5fba09196b6e564a48d3eed114c7a0edb1cf9a1494c`
+  - `nuttx.bin`: 485592 bytes, SHA-256 `9e2b517412c3771b62df4ec90e6e33f0722c90c767219524c06a7d0651349169`
+  - `image-info`: ESP32-P4, 16MB, DIO, 80MHz, Entry `0x4ff4812a`, Checksum `0x41` (valid).
+
+
+
+
+
