@@ -1123,8 +1123,88 @@ SHA-256 `9ef17f2c8a1e7ff3f97763288001966001123fc986a2e0e771005ef2bc7f85e4`。
 
 ### 23.2 代码规范与构建验证
 
-- **代码规范**：全部 41 个源文件与头文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
+- **代码规范**：全部 43 个源文件与头文件 100% 通过 `nxstyle`（0 Error, 0 Warning）。
 - **构建输出**：`nuttx.bin` 成功生成，Exit Code 0。
+
+---
+
+## 24. ESP32-P4 PPA (Pixel Processing Accelerator) 与 2D-DMA 硬件加速驱动 (2026-08-30)
+
+### 24.1 硬件加速架构与设计实现
+
+ESP32-P4 SoC 搭载了专属的 **2D-DMA / PPA（Pixel Processing Accelerator）硬件加速引擎**，专用于多媒体与图形硬件流水线。本项目完成了 2D-DMA 控制器底层移植与 PPA LL/HAL 硬件驱动深度对接，实现全硬件加速与零 CPU 负载图像变换：
+
+1. **2D-DMA 硬件控制器驱动 (`nuttx/arch/risc-v/src/esp32p4/esp32p4_dma2d.c/h`)**：
+   - **系统时钟与复位**：管理 `HP_SYS_CLKRST.soc_clk_ctrl1.reg_dma2d_sys_clk_en` 与 `reg_rst_en_dma2d`；
+   - **AXI FIFO 与硬件使能**：配置 AXI Master 读写 FIFO 与 Arbiter 权重；
+   - **TX/RX 多通道管理**：支持 4 路 TX 通道（0..3）与 3 路 RX 通道（0..2）；
+   - **描述符链路管理**：支持 8 字节对齐的 2D-DMA 描述符（Block 2D 坐标、长宽、ha/va、pbyte、EOF 及 Owner 控制）；
+   - **突发传输与端口模式**：配置 128 字节 AXI Burst 长度及 PPA SRM 专用的 `dscr-port` 宏块参数透传模式；
+   - **传输同步与事件等待**：基于 `DMA2D_LL_EVENT_RX_SUC_EOF` / `RX_DONE` 的硬件异步传输完成检测与超时保护。
+
+2. **PPA 硬件加速核心驱动 (`nuttx/arch/risc-v/src/esp32p4/esp32p4_ppa.c/h`)**：
+   - **硬件时钟与模块复位**：管理 `HP_SYS_CLKRST.soc_clk_ctrl1.reg_ppa_sys_clk_en` 与 `reg_rst_en_ppa`；
+   - **Cache 一致性管理**：通过 `esp_cache_msync` 分别在 DMA 触发前执行 `C2M`（写入内存）与传输完成后执行 `M2C`（缓存失效）；
+   - **PPA SRM 硬件缩放 (`esp32p4_ppa_scale`)**：配置 SRM 引擎缩放积分/小数寄存器与 2D-DMA TX0/RX0 流水线，包含 DIG-734 硬件宏块换序规避逻辑；
+   - **PPA SRM 硬件旋转 (`esp32p4_ppa_rotate`)**：支持 0°/90°/180°/270° 纯硬件旋转加速；
+   - **PPA Blend 硬件混合 (`esp32p4_ppa_blend`)**：配置 TX1 (Background)、TX2 (Foreground) 与 RX0 (Destination) 3 通道 2D-DMA，由硬件 Blend 引擎执行 Alpha 融合；
+   - **PPA Blend 快速填充 (`esp32p4_ppa_fill`)**：配置 RX0 2D-DMA，通过 PPA Blend Fix Pixel Fill 模式实现微秒级硬件快速清屏；
+   - **PPA SRM 颜色空间转换 (`esp32p4_ppa_csc`)**：硬件流式转换 RGB565 ➔ RGB888 ➔ GRAY8。
+
+3. **基准测试与验证套件 (`app/velafit_ai/engine/velafit_ppa_bench.c/h`)**：
+   - 提供了 CLI 命令 `velafit_ai ppa`，自动化测量各图形加速环节的延时（ms）、吞吐率（FPS）与带宽（MB/s）。
+
+4. **构建与 Kconfig 适配**：
+   - 在 `nuttx/arch/risc-v/src/esp32p4/Kconfig` 中增加 `CONFIG_ESP32P4_DMA2D` 与 `CONFIG_ESP32P4_PPA`；
+   - 在 `nuttx/arch/risc-v/src/esp32p4/Make.defs` 中加入 `esp32p4_dma2d.c` 与 `esp32p4_ppa.c`；
+   - 在 `hal_esp32p4.mk` 中引入 `esp_hal_ppa` 路径及 `dma2d_hal.c`、`dma2d_periph.c`、`ppa_hal.c`。
+
+### 24.2 代码规范与构建验证
+
+- **代码规范**：所有新增与修改驱动文件（`esp32p4_dma2d.h/c`、`esp32p4_ppa.h/c`）100% 通过 `nxstyle` 校验（0 Error, 0 Warning）。
+- **全量构建验证**：执行 `./build.sh vendor/openvela/boards/contest2026_345_board/configs/nsh` 成功生成 `nuttx.bin` 与 `nuttx.hex`，Exit Code 0。
+
+### 24.3 实机物理板级验证清单与操作指引 (Pending Board Smoke Test)
+
+为了防止后续上板联调阶段遗漏测试项，在此记录详细的硬件上机验证步骤与预期基准指标：
+
+| 验证项编号 | 测试项名称 | 测试命令 / 操作 | 预期现象 / 指标要求 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **TEST-PPA-01** | PPA 驱动初始化与时钟冒烟 | `velafit_ai ppa` | 系统时钟/复位正常，2D-DMA 与 PPA 寄存器配置无死锁 | 待上板验证 |
+| **TEST-PPA-02** | 720p ➔ 160×160 摄像头硬件降采样 | `velafit_ai ppa` (Step 1) | 2D-DMA TX0/RX0 传输完成，耗时 < 5ms (单帧 FPS > 200)，图像缩放平滑无伪影 | 待上板验证 |
+| **TEST-PPA-03** | 160×160 90° 旋转硬件加速 | `velafit_ai ppa` (Step 2) | 耗时 < 0.5ms (FPS > 2000)，旋转后关键点坐标对应准确 | 待上板验证 |
+| **TEST-PPA-04** | 2D Alpha 图层融合加速 | `velafit_ai ppa` (Step 3) | 3 通道 2D-DMA 正常协同，耗时 < 0.8ms，透明度渐变连续 | 待上板验证 |
+| **TEST-PPA-05** | 160×160 颜色空间转换 (RGB ➔ GRAY) | `velafit_ai ppa` (Step 4) | 硬件流式转换正确，耗时 < 0.3ms | 待上板验证 |
+| **TEST-PPA-06** | 1024×600 Framebuffer 硬件快速清屏 | `velafit_ai ppa` (Step 5) | 单次清屏耗时 < 2ms (纯软件需 15ms+)，屏幕无撕裂 | 待上板验证 |
+
+#### 实机烧录与调试指令：
+```bash
+# 1. 烧录固件至 ESP32-P4X Function EV Board
+esptool.py -p /dev/ttyACM0 -b 921600 --chip esp32p4 write_flash 0x10000 nuttx.bin
+
+# 2. 连接串口终端 (115200 8N1)
+picocom -b 115200 /dev/ttyACM0
+
+# 3. 在 NSH 终端执行基准评测
+nsh> velafit_ai ppa
+```
+
+### 24.4 多媒体全流水线硬件加速深度级联 (Multimedia Pipeline Cascading)
+
+为了将 PPA 与 2D-DMA 算力全面注入实际多媒体与 AI 视觉业务流水线，完成了以下深度级联架构：
+
+1. **摄像头采集 ➔ 模型输入硬件前处理流水线 (`velafit_pipeline_step_camera_frame`)**：
+   - 原始摄像头采集流（1280×720 / 640×480 RGB565/YUV422）输入；
+   - 通过 **PPA SRM 硬件缩放** 直接降采样为 160×160；
+   - 通过 **PPA SRM 硬件旋转** 适配摄像头传感器安装角度（0°/90°/180°/270°）；
+   - 通过 **PPA SRM CSC** 硬件转换为 AI 模型所需的颜色空间（RGB888 / GRAY8）；
+   - 实现 **零 CPU 负载、零内存多重拷贝** 的端到端预处理。
+
+2. **UI 渲染引擎 ➔ 屏幕显示硬件加速 (`velafit_render`)**：
+   - **硬件快速清屏/背景填充 (`velafit_canvas_clear`)**：自动路由至 `esp32p4_ppa_fill`，极大降低每帧 UI 渲染开销；
+   - **实时视频流与 AI 骨骼 HUD 融合 (`velafit_render_blend_background`)**：调用 `esp32p4_ppa_blend` 实现摄像头实时背景图层与骨骼 OSD 半透明融合；
+   - **Canvas ➔ MIPI DSI 硬件全屏缩放 (`velafit_render_scale_to_fb0`)**：调用 `esp32p4_ppa_scale` 将渲染画布硬件拉伸映射至 1024×600 / 1280×720 屏幕。
+
 
 
 

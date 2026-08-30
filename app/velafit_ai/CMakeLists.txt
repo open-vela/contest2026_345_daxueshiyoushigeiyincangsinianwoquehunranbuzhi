@@ -17,8 +17,10 @@ if(CONFIG_LVX_USE_DEMO_CONTEST2026_345_VELAFIT_AI)
       sync
       pipeline
       plan
+      ${NUTTX_DIR}/arch/risc-v/src/esp32p4
     SRCS
       engine/esp_nn_ops.c
+      engine/velafit_ppa_bench.c
       models/velafit_pose_model.c
       models/sample_pose_frames.c
       algo/one_euro_filter.c

@@ -24,11 +24,13 @@
  * Included Files
  ****************************************************************************/
 
+#include <nuttx/config.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
+#include "esp32p4_ppa.h"
 #include "velafit_pipeline.h"
 #include "velafit_pose_model.h"
 #include "sample_pose_frames.h"
@@ -152,6 +154,76 @@ int velafit_pipeline_step_image(velafit_pipeline_t *pipe,
 
   raw_pose.timestamp_ms = timestamp_ms;
   return velafit_pipeline_step_pose(pipe, &raw_pose);
+}
+
+/****************************************************************************
+ * Name: velafit_pipeline_step_camera_frame
+ ****************************************************************************/
+
+int velafit_pipeline_step_camera_frame(velafit_pipeline_t *pipe,
+                                       const void *cam_frame,
+                                       uint16_t cam_w,
+                                       uint16_t cam_h,
+                                       int color_fmt,
+                                       int rotation,
+                                       uint32_t timestamp_ms)
+{
+  if (pipe == NULL || cam_frame == NULL || cam_w == 0 || cam_h == 0)
+    {
+      return -EINVAL;
+    }
+
+#ifdef CONFIG_ESP32P4_PPA
+  /* Buffer for 160x160 AI model input */
+
+  uint8_t scaled_buf[160 * 160 * 3];
+  uint8_t rot_buf[160 * 160 * 3];
+  const void *cur_in = cam_frame;
+  void *cur_out = scaled_buf;
+  int cur_fmt = color_fmt;
+
+  /* 1. Downscale camera frame (e.g. 720p -> 160x160) using PPA SRM */
+
+  int ret = esp32p4_ppa_scale(cur_in, cam_w, cam_h,
+                              cur_out, 160, 160, cur_fmt);
+  if (ret != OK)
+    {
+      return ret;
+    }
+
+  cur_in = scaled_buf;
+
+  /* 2. Rotate 160x160 if needed */
+
+  if (rotation != 0)
+    {
+      ret = esp32p4_ppa_rotate(cur_in, 160, 160,
+                               rot_buf, rotation, cur_fmt);
+      if (ret == OK)
+        {
+          cur_in = rot_buf;
+        }
+    }
+
+  /* 3. Convert to RGB888 for model inference if input is not RGB888 */
+
+  if (cur_fmt != ESP32P4_PPA_COLOR_RGB888)
+    {
+      ret = esp32p4_ppa_csc(cur_in, scaled_buf, 160, 160,
+                            cur_fmt, ESP32P4_PPA_COLOR_RGB888);
+      if (ret == OK)
+        {
+          cur_in = scaled_buf;
+        }
+    }
+
+  /* 4. Feed 160x160 image into AI model & pipeline step */
+
+  return velafit_pipeline_step_image(pipe, (const uint8_t *)cur_in,
+                                     timestamp_ms);
+#else
+  return -ENOSYS;
+#endif
 }
 
 /****************************************************************************

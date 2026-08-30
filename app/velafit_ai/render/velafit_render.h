@@ -216,6 +216,15 @@ int velafit_render_save_ppm(const velafit_canvas_t *canvas,
 
 int velafit_render_to_fb0(const velafit_canvas_t *canvas);
 
+int velafit_render_blend_background(velafit_canvas_t *canvas,
+                                    const void *bg_image,
+                                    uint8_t alpha);
+
+int velafit_render_scale_to_fb0(const velafit_canvas_t *canvas,
+                                void *fb_mem,
+                                uint16_t fb_w,
+                                uint16_t fb_h);
+
 #ifdef __cplusplus
 }
 #endif
