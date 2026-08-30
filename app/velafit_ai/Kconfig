@@ -1,0 +1,12 @@
+#
+# For a description of the syntax of this configuration file, see the
+# kconfig-language.txt file in the NuttX tools repository.
+#
+
+config LVX_USE_DEMO_CONTEST2026_345_VELAFIT_AI
+	bool "Contest 2026 team 345 VelaFit Edge AI Inference Engine & Fitness Suite"
+	default y
+	---help---
+		Enable the VelaFit Edge AI Inference Engine, INT8 Pose Estimation model,
+		One-Euro filter, Squat & Jumping Jack FSM counters, and Edge-Cloud
+		sync suite on ESP32-P4.
