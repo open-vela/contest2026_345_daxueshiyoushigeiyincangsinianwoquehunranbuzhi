@@ -28,10 +28,13 @@ if(CONFIG_LVX_USE_DEMO_CONTEST2026_345_VELAFIT_AI)
       algo/jumping_jack_fsm.c
       algo/pushup_fsm.c
       algo/plank_fsm.c
+      algo/velafit_kws.c
       render/velafit_render.c
       audio/velafit_audio_cue.c
       storage/velafit_storage.c
       sync/velafit_sync.c
+      sync/velafit_cloud_agent.c
+      sync/velafit_config.c
       pipeline/velafit_pipeline.c
       plan/velafit_plan_scheduler.c
       plan/velafit_preset_plans.c
