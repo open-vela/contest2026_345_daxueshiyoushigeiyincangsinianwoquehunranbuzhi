@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <time.h>
+#include <sys/ioctl.h>
 
 #include <nuttx/input/touchscreen.h>
 #include "velafit_render.h"

@@ -19,6 +19,7 @@
 #include "board_spiflash.h"
 #include "board_audio.h"
 #include "board_touch.h"
+#include "board_sdmmc.h"
 
 /****************************************************************************
  * Public Functions
@@ -81,6 +82,16 @@ int board_app_initialize(uintptr_t arg)
   if (ret < 0)
     {
       return ret;
+    }
+#endif
+
+#ifdef CONFIG_ESP32P4_SDMMC
+  ret = board_sdmmc_initialize();
+  if (ret < 0)
+    {
+      /* Non-fatal: SD card may not be inserted at boot */
+
+      ret = 0;
     }
 #endif
 

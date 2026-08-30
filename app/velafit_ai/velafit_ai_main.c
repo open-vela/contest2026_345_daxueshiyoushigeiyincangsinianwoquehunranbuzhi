@@ -29,6 +29,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #include "velafit_types.h"
 #include "esp_nn_ops.h"
@@ -84,6 +85,7 @@ static void print_usage(void)
   printf("  sync        [cmd]    - Cloud Sync (status/flush/mock)\n");
   printf("  config      [cmd]    - Runtime & Cloud Config (show/set)\n");
   printf("  touch       [sec]    - Capacitive Touchscreen & Gesture Test\n");
+  printf("  sdcard      [test]   - MicroSD FAT32 Read/Write Test\n");
   printf("  kws         [sim]    - Local Keyword Spotting (Wakeup Test)\n");
   printf("  cloud       [sim]    - Xiaomi MIMO Multimodal Cloud Agent\n");
   printf("  report               - Edge-Cloud Workout JSON Report\n");
@@ -886,6 +888,121 @@ static int cmd_config(const char *sub, const char *arg1, const char *arg2)
 }
 
 /****************************************************************************
+ * Name: cmd_sdcard
+ ****************************************************************************/
+
+static int cmd_sdcard(const char *sub)
+{
+  static uint8_t write_buf[4096];
+  static uint8_t read_buf[4096];
+  char test_path[128];
+  FILE *fp;
+  struct timespec ts0;
+  struct timespec ts1;
+  uint64_t t_write;
+  uint64_t t_read;
+  size_t bytes_read = 0;
+  bool valid = true;
+  int i;
+  int b;
+
+  printf("\n>>> [SDMMC / MicroSD Card Test] (%s)...\n",
+         sub ? sub : "benchmark");
+
+  if (access("/sdcard", F_OK) != 0)
+    {
+      printf("Error: /sdcard mount point not found or not accessible!\n");
+      printf("       Please ensure MicroSD is inserted and formatted.\n");
+      return -ENOENT;
+    }
+
+  printf("  -> /sdcard mount point: [OK]\n");
+  printf("  -> Ensuring /sdcard/velafit/media directory exists...\n");
+  mkdir("/sdcard/velafit", 0777);
+  mkdir("/sdcard/velafit/media", 0777);
+
+  snprintf(test_path, sizeof(test_path),
+           "/sdcard/velafit/media/sd_test.bin");
+
+  printf("  -> Writing test file: %s (64KB payload)...\n", test_path);
+
+  fp = fopen(test_path, "wb");
+  if (fp == NULL)
+    {
+      printf("Error: Failed to open %s for writing (%d)\n",
+             test_path, errno);
+      return -errno;
+    }
+
+  for (i = 0; i < 4096; i++)
+    {
+      write_buf[i] = (uint8_t)(i & 0xff);
+    }
+
+  clock_gettime(CLOCK_MONOTONIC, &ts0);
+  for (b = 0; b < 16; b++)
+    {
+      fwrite(write_buf, 1, 4096, fp);
+    }
+
+  fflush(fp);
+  fclose(fp);
+  clock_gettime(CLOCK_MONOTONIC, &ts1);
+
+  t_write = (uint64_t)(ts1.tv_sec - ts0.tv_sec) * 1000000ULL +
+            (uint64_t)(ts1.tv_nsec - ts0.tv_nsec) / 1000ULL;
+  if (t_write == 0)
+    {
+      t_write = 1;
+    }
+
+  printf("  -> Write complete: 65536 bytes in %llu us (%.2f MB/s)\n",
+         (unsigned long long)t_write,
+         (65536.0f / (float)t_write));
+
+  printf("  -> Verifying file data integrity...\n");
+  fp = fopen(test_path, "rb");
+  if (fp == NULL)
+    {
+      printf("Error: Failed to reopen %s for reading\n", test_path);
+      return -errno;
+    }
+
+  clock_gettime(CLOCK_MONOTONIC, &ts0);
+  for (b = 0; b < 16; b++)
+    {
+      size_t n = fread(read_buf, 1, 4096, fp);
+      bytes_read += n;
+      if (memcmp(read_buf, write_buf, 4096) != 0)
+        {
+          valid = false;
+          break;
+        }
+    }
+
+  fclose(fp);
+  clock_gettime(CLOCK_MONOTONIC, &ts1);
+
+  t_read = (uint64_t)(ts1.tv_sec - ts0.tv_sec) * 1000000ULL +
+           (uint64_t)(ts1.tv_nsec - ts0.tv_nsec) / 1000ULL;
+  if (t_read == 0)
+    {
+      t_read = 1;
+    }
+
+  printf("  -> Read complete: %zu bytes in %llu us (%.2f MB/s), "
+         "Integrity: %s\n",
+         bytes_read, (unsigned long long)t_read,
+         (65536.0f / (float)t_read),
+         valid ? "[PASS]" : "[FAIL]");
+
+  unlink(test_path);
+  printf(">>> MicroSD Card / FAT32 Test: %s\n\n",
+         valid ? "[PASS]" : "[FAIL]");
+  return valid ? 0 : -EIO;
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -980,6 +1097,11 @@ int main(int argc, char *argv[])
     {
       int sec = (argc >= 3) ? atoi(argv[2]) : 15;
       velafit_touch_run_test(sec);
+    }
+  else if (strcmp(cmd, "sdcard") == 0)
+    {
+      const char *sub = (argc >= 3) ? argv[2] : "benchmark";
+      cmd_sdcard(sub);
     }
   else if (strcmp(cmd, "kws") == 0)
     {

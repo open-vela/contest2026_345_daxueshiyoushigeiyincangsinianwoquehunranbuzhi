@@ -37,6 +37,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+#define VELAFIT_STORAGE_SDCARD_PATH    "/sdcard/velafit"
 #define VELAFIT_STORAGE_DEFAULT_PATH   "/data/velafit"
 #define VELAFIT_STORAGE_FALLBACK_PATH  "/tmp/velafit"
 #define VELAFIT_STORAGE_MAX_SESSIONS   64
