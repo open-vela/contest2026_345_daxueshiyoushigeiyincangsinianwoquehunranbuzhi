@@ -1,5 +1,5 @@
 /****************************************************************************
- * contest2026_345_daxueshiyoushigeiyincangsinianwoquehunranbuzhi/app/velafit_ai/audio/velafit_audio_cue.h
+ * contest2026_345_daxueshiyoushigeiyincangsinianwoquehunranbuzhi/app/velafit_ai/algo/velafit_kws.h
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -20,8 +20,8 @@
  *
  ****************************************************************************/
 
-#ifndef __APPS_PACKAGES_DEMOS_CONTEST2026_345_VELAFIT_AI_AUDIO_VELAFIT_AUDIO_CUE_H
-#define __APPS_PACKAGES_DEMOS_CONTEST2026_345_VELAFIT_AI_AUDIO_VELAFIT_AUDIO_CUE_H
+#ifndef __APPS_PACKAGES_DEMOS_CONTEST2026_345_VELAFIT_AI_ALGO_VELAFIT_KWS_H
+#define __APPS_PACKAGES_DEMOS_CONTEST2026_345_VELAFIT_AI_ALGO_VELAFIT_KWS_H
 
 /****************************************************************************
  * Included Files
@@ -29,6 +29,17 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define VELAFIT_KWS_KEYWORD_PRIMARY     "velafit"
+#define VELAFIT_KWS_KEYWORD_SECONDARY   "xiao_ai"
+
+#define VELAFIT_KWS_SAMPLE_RATE         16000
+#define VELAFIT_KWS_FRAME_SAMPLES       320   /* 20 ms */
 
 /****************************************************************************
  * Public Types
@@ -36,20 +47,14 @@
 
 typedef enum
 {
-  VELAFIT_AUDIO_CUE_START = 0,
-  VELAFIT_AUDIO_CUE_REP_COUNT,
-  VELAFIT_AUDIO_CUE_WARN_SHALLOW,
-  VELAFIT_AUDIO_CUE_WARN_VALGUS,
-  VELAFIT_AUDIO_CUE_WARN_LEAN,
-  VELAFIT_AUDIO_CUE_WARN_SAG,
-  VELAFIT_AUDIO_CUE_WARN_PIKE,
-  VELAFIT_AUDIO_CUE_COUNTDOWN,
-  VELAFIT_AUDIO_CUE_REST,
-  VELAFIT_AUDIO_CUE_WHISTLE,
-  VELAFIT_AUDIO_CUE_WAKEUP,
-  VELAFIT_AUDIO_CUE_FINISH,
-  VELAFIT_AUDIO_CUE_MAX
-} velafit_audio_cue_type_t;
+  VELAFIT_KWS_STATE_IDLE = 0,
+  VELAFIT_KWS_STATE_LISTENING,
+  VELAFIT_KWS_STATE_TRIGGERED,
+  VELAFIT_KWS_STATE_CAPTURING_CMD
+} velafit_kws_state_t;
+
+typedef void (*velafit_kws_callback_t)(const char *keyword,
+                                       float confidence);
 
 /****************************************************************************
  * Public Function Prototypes
@@ -60,18 +65,23 @@ extern "C"
 {
 #endif
 
-int velafit_audio_cue_init(void);
+int velafit_kws_init(velafit_kws_callback_t cb);
 
-void velafit_audio_cue_deinit(void);
+void velafit_kws_deinit(void);
 
-int velafit_audio_cue_play(velafit_audio_cue_type_t cue);
+int velafit_kws_feed_pcm(const int16_t *pcm_samples,
+                         size_t count);
 
-const char *velafit_audio_cue_name(velafit_audio_cue_type_t cue);
+velafit_kws_state_t velafit_kws_get_state(void);
 
-const char *velafit_audio_cue_desc(velafit_audio_cue_type_t cue);
+bool velafit_kws_is_triggered(void);
+
+void velafit_kws_reset(void);
+
+int velafit_kws_run_simulation(const char *test_mode);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __APPS_PACKAGES_DEMOS_CONTEST2026_345_VELAFIT_AI_AUDIO_VELAFIT_AUDIO_CUE_H */
+#endif /* __APPS_PACKAGES_DEMOS_CONTEST2026_345_VELAFIT_AI_ALGO_VELAFIT_KWS_H */
