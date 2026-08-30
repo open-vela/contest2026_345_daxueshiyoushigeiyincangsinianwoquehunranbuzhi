@@ -205,6 +205,19 @@ static const cue_profile_t g_cue_profiles[VELAFIT_AUDIO_CUE_MAX] =
     }
   },
   {
+    "WAKEUP",
+    "Voice Assistant Wakeup Tone",
+    2,
+    {
+      {
+        1046, 70
+      },
+      {
+        1318, 120
+      }
+    }
+  },
+  {
     "FINISH",
     "Workout Complete Victory Fanfare",
     4,
