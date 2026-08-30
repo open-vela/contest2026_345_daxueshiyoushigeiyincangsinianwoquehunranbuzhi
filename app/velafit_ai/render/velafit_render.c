@@ -24,6 +24,7 @@
  * Included Files
  ****************************************************************************/
 
+#include <nuttx/config.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +34,7 @@
 #include <math.h>
 #include <sys/ioctl.h>
 
+#include "esp32p4_ppa.h"
 #include "velafit_render.h"
 
 /****************************************************************************
@@ -269,6 +271,31 @@ void velafit_canvas_clear(velafit_canvas_t *canvas,
 
   uint32_t w = canvas->width;
   uint32_t h = canvas->height;
+
+#ifdef CONFIG_ESP32P4_PPA
+  int ppa_fmt = ESP32P4_PPA_COLOR_RGB565;
+  uint32_t ppa_color = 0;
+
+  if (canvas->format == VELAFIT_PIXFMT_RGB565)
+    {
+      ppa_fmt = ESP32P4_PPA_COLOR_RGB565;
+      ppa_color = ((color.r >> 3) << 11) |
+                  ((color.g >> 2) << 5) |
+                  (color.b >> 3);
+    }
+  else if (canvas->format == VELAFIT_PIXFMT_RGB888)
+    {
+      ppa_fmt = ESP32P4_PPA_COLOR_RGB888;
+      ppa_color = ((uint32_t)color.r) |
+                  ((uint32_t)color.g << 8) |
+                  ((uint32_t)color.b << 16);
+    }
+
+  if (esp32p4_ppa_fill(canvas->buffer, w, h, ppa_color, ppa_fmt) == OK)
+    {
+      return;
+    }
+#endif
 
   if (canvas->format == VELAFIT_PIXFMT_RGB565)
     {
@@ -1017,4 +1044,54 @@ int velafit_render_to_fb0(const velafit_canvas_t *canvas)
     }
 
   return OK;
+}
+
+/****************************************************************************
+ * Name: velafit_render_blend_background
+ ****************************************************************************/
+
+int velafit_render_blend_background(velafit_canvas_t *canvas,
+                                    const void *bg_image,
+                                    uint8_t alpha)
+{
+  if (canvas == NULL || canvas->buffer == NULL || bg_image == NULL)
+    {
+      return -EINVAL;
+    }
+
+#ifdef CONFIG_ESP32P4_PPA
+  int ppa_fmt = (canvas->format == VELAFIT_PIXFMT_RGB888) ?
+                ESP32P4_PPA_COLOR_RGB888 : ESP32P4_PPA_COLOR_RGB565;
+
+  return esp32p4_ppa_blend(bg_image, canvas->buffer, canvas->buffer,
+                           canvas->width, canvas->height, alpha, ppa_fmt);
+#else
+  return -ENOSYS;
+#endif
+}
+
+/****************************************************************************
+ * Name: velafit_render_scale_to_fb0
+ ****************************************************************************/
+
+int velafit_render_scale_to_fb0(const velafit_canvas_t *canvas,
+                                void *fb_mem,
+                                uint16_t fb_w,
+                                uint16_t fb_h)
+{
+  if (canvas == NULL || canvas->buffer == NULL || fb_mem == NULL ||
+      fb_w == 0 || fb_h == 0)
+    {
+      return -EINVAL;
+    }
+
+#ifdef CONFIG_ESP32P4_PPA
+  int ppa_fmt = (canvas->format == VELAFIT_PIXFMT_RGB888) ?
+                ESP32P4_PPA_COLOR_RGB888 : ESP32P4_PPA_COLOR_RGB565;
+
+  return esp32p4_ppa_scale(canvas->buffer, canvas->width, canvas->height,
+                           fb_mem, fb_w, fb_h, ppa_fmt);
+#else
+  return -ENOSYS;
+#endif
 }

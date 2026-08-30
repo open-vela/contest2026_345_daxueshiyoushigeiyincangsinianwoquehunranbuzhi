@@ -19,8 +19,10 @@ CFLAGS += -I$(APPDIR)/packages/demos/contest2026_345_velafit_ai/storage
 CFLAGS += -I$(APPDIR)/packages/demos/contest2026_345_velafit_ai/sync
 CFLAGS += -I$(APPDIR)/packages/demos/contest2026_345_velafit_ai/pipeline
 CFLAGS += -I$(APPDIR)/packages/demos/contest2026_345_velafit_ai/plan
+CFLAGS += -I$(TOPDIR)/arch/risc-v/src/esp32p4
 
 CSRCS += engine/esp_nn_ops.c
+CSRCS += engine/velafit_ppa_bench.c
 CSRCS += models/velafit_pose_model.c
 CSRCS += models/sample_pose_frames.c
 CSRCS += algo/one_euro_filter.c

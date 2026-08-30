@@ -51,6 +51,7 @@
 #include "velafit_kws.h"
 #include "velafit_cloud_agent.h"
 #include "velafit_config.h"
+#include "velafit_ppa_bench.h"
 
 /****************************************************************************
  * Private Functions
@@ -68,6 +69,7 @@ static void print_usage(void)
   printf("Usage: velafit_ai <command> [args]\n\n");
   printf("Commands:\n");
   printf("  benchmark            - Stage 1: ESP-NN SIMD Benchmarks\n");
+  printf("  ppa                  - Stage 1: PPA 2D Hardware Benchmarks\n");
   printf("  test_pose            - Stage 2: 17 Keypoint Pose Inference\n");
   printf("  test_squat  [count]  - Stage 3: Squat FSM & Quality Audit\n");
   printf("  test_jj     [count]  - Stage 3: Jumping Jack FSM Simulation\n");
@@ -903,6 +905,10 @@ int main(int argc, char *argv[])
     {
       esp_nn_run_benchmarks();
     }
+  else if (strcmp(cmd, "ppa") == 0)
+    {
+      velafit_ppa_run_benchmarks();
+    }
   else if (strcmp(cmd, "test_pose") == 0)
     {
       cmd_test_pose();
@@ -987,6 +993,7 @@ int main(int argc, char *argv[])
       printf("  VelaFit AI Full Suite (Stage 1 ~ 6 + Config + MIMO)\n");
       printf("=======================================================\n");
       esp_nn_run_benchmarks();
+      velafit_ppa_run_benchmarks();
       cmd_test_pose();
       cmd_test_squat(1);
       cmd_test_jumping_jack(1);
