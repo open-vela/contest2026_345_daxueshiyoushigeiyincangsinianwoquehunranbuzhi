@@ -122,7 +122,7 @@ openvela  https://github.com/open-vela/nuttx            # 赛事公共上游
 
 本地联调分支：`feat/esp32p4-soc-contest2026`。
 
-分支当前 HEAD：`d49dc5e5a9c5675cd5ac9916b40d30628cf89e33`。
+分支当前 HEAD：`d02a5314c1e847c20c0fa9760773d578b948f219`。
 
 基点：`openvela/dev-ai-contest-2026` 的 `dd92bcf4257`。
 
@@ -132,10 +132,10 @@ PR base：`open-vela/nuttx:dev-ai-contest-2026`。
 
 PR head：`uleemos:feat/esp32p4-soc-contest2026`。
 
-截至 2026-08-15，PR #340 为 Open、非 Draft、GitHub 判定 MERGEABLE；CLA、
-checkpatch 和已有 CI 全部通过，但仍需 openvela/赛事 code owner review 后才能合入。
+截至 2026-08-30，PR #340 为 Open、非 Draft、GitHub 判定 MERGEABLE；CLA、
+checkpatch 和已有 CI 全部通过，正随开发阶段追加公共 SoC 驱动。
 
-该分支已有 7 个提交，后续公共 SoC 驱动应继续追加逻辑清晰的 commit：
+该分支已有 11 个提交，公共 SoC 驱动持续以独立 commit 追加：
 
 ```text
 896b5f10ea4  risc-v: add minimal ESP32-P4 bring-up support
@@ -145,6 +145,10 @@ b9f8442fa73  risc-v: harden ESP32-P4 GPIO interrupt handling
 508bf7e8c6c  risc-v: add ESP32-P4 memory and flash support
 ef95dfb8646  risc-v: fix ESP32-P4 flash HAL style
 d49dc5e5a9c  risc-v: fix ESP32-P4 I2C initializer style
+d6d995a6748  risc-v/esp32p4: add MIPI CSI controller and D-PHY driver
+85685fb36fd  esp32p4: add I2S lower-half driver and fix ES8311 mutex include
+6ac30d6cf0f  risc-v/esp32p4: add MIPI DSI and framebuffer support
+d02a5314c1e  arch/risc-v/esp32p4: add 2D-DMA controller and PPA hardware acceleration driver
 ```
 
 不要等待 PR #340 合入才继续开发。新的公共 SoC 层能力可以在该分支继续形成独立
