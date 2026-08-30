@@ -24,4 +24,8 @@ ifeq ($(CONFIG_AUDIO_ES8311),y)
 CSRCS += board_audio.c
 endif
 
+ifeq ($(CONFIG_INPUT_TOUCHSCREEN),y)
+CSRCS += board_touch.c
+endif
+
 include $(TOPDIR)/boards/Board.mk

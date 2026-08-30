@@ -18,6 +18,7 @@
 #include "board_i2c.h"
 #include "board_spiflash.h"
 #include "board_audio.h"
+#include "board_touch.h"
 
 /****************************************************************************
  * Public Functions
@@ -69,6 +70,14 @@ int board_app_initialize(uintptr_t arg)
 
 #if defined(CONFIG_AUDIO_ES8311) && defined(CONFIG_ESP32P4_I2S0)
   ret = board_audio_initialize();
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
+#ifdef CONFIG_INPUT_TOUCHSCREEN
+  ret = board_touch_initialize();
   if (ret < 0)
     {
       return ret;

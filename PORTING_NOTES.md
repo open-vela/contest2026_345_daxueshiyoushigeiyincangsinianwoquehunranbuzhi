@@ -1205,6 +1205,54 @@ nsh> velafit_ai ppa
    - **实时视频流与 AI 骨骼 HUD 融合 (`velafit_render_blend_background`)**：调用 `esp32p4_ppa_blend` 实现摄像头实时背景图层与骨骼 OSD 半透明融合；
    - **Canvas ➔ MIPI DSI 硬件全屏缩放 (`velafit_render_scale_to_fb0`)**：调用 `esp32p4_ppa_scale` 将渲染画布硬件拉伸映射至 1024×600 / 1280×720 屏幕。
 
+## 25. ESP32-P4 电容触摸屏子系统驱动移植与标准 Touchscreen 架构 (GT911 / FT5x06 / CST816S ➔ /dev/input0)
+
+### 25.1 硬件背景与连接定义
+ESP32-P4X Function EV Board V1.8 配套的 MIPI DSI LCD 触摸子板（`esp32-p4-function-ev-board-lcd-subboard-schematics.pdf`）通过 I2C0 总线与专用触摸中断/复位引脚与触摸控制器通信：
+- **I2C0 总线**：`ESP_I2C_SDA`（GPIO7，2.2kΩ 上拉）、`ESP_I2C_SCL`（GPIO8，2.2kΩ 上拉）；
+- **触摸中断 (INT)**：`INT_TP`，支持下降沿触发与定时轮询双模；
+- **触摸复位 (RST)**：`RESET_TP`，用于上电复位与模式时序控制；
+- **电源轨**：`VDD_3V3` 3.3V 供电。
+
+### 25.2 统一多芯片自动探测与多点触控协议 (Auto-Probe & Multi-Touch)
+为了兼容 EV Board 及各主流 MIPI DSI 屏幕模组，实现了自动探测与统一多点触控驱动层（`board_touch.c`）：
+1. **Goodix GT911 / GT9xx**：
+   - 16 位寄存器寻址，探测 `0x5D`（Primary）与 `0x14`（Secondary）I2C 地址；
+   - 读取 `0x8140` 产品 ID 验证 (`911`)，通过 `0x814E` 状态寄存器读取多点坐标（最多 5 点）与压力值；
+2. **FocalTech FT5x06 / FT6336 / FT5406**：
+   - 8 位寄存器寻址，探测 `0x38` I2C 地址；
+   - 读取 `0xA3`/`0xA8` Chip ID 寄存器，解析 `0x01` 手势与 `0x03` 多点触控寄存器；
+3. **Hynitron CST816S / CST816T**：
+   - 8 位寄存器寻址，探测 `0x15` I2C 地址；
+   - 读取 `0xA7` Chip ID，解析 `0x01` 硬件滑动手势与单/双击动作。
+
+### 25.3 标准 NuttX Touchscreen 上层注册与 LVGL 对接
+1. **NuttX 标准 `/dev/input0` 注册**：
+   - 驱动下半部分实现 `struct touch_lowerhalf_s`（含 `control` 与 `TSIOC_GETRESOLUTION` / `TSIOC_GETMAXPOINTS`）；
+   - 通过 `touch_register(&dev->lower, "/dev/input0", 1)` 注册为标准字符设备；
+   - 周期性采样工作线程（50Hz / 20ms）通过 `touch_event(priv, &sample)` 向用户态派发 `struct touch_sample_s` 事件；
+2. **LVGL 9.x / 8.x 输入对接**：
+   - LVGL indev 驱动只需以 `O_RDONLY | O_NONBLOCK` 打开 `/dev/input0`，在 `read_cb` 中读取 `struct touch_sample_s`，直接映射 `x`、`y` 和 `state`（`LV_INDEV_STATE_PR` / `LV_INDEV_STATE_REL`）。
+
+### 25.4 触摸屏诊断与评测套件 (`velafit_ai touch`)
+提供了专用 CLI 测试工具：
+```bash
+# 运行 15 秒电容触摸屏诊断
+nsh> velafit_ai touch 15
+```
+输出各触控点的事件类型（`DOWN` / `MOVE` / `UP`）、坐标（`X`、`Y`）、压力值（`P`）与识别到的手势（`TAP` / `DOUBLE_TAP` / `SLIDE_LEFT` / `SLIDE_RIGHT` / `SLIDE_UP` / `SLIDE_DOWN`）。
+
+### 25.5 板级实机验证清单 (Board Smoke Test Checklist)
+
+| 验证项编号 | 测试项名称 | 测试命令 / 操作 | 预期现象 / 指标要求 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **TEST-TP-01** | I2C0 总线与触摸芯片自动识别 | 启动日志 / `i2c dev 0` | 正确探测到 GT911 (`0x5D`) / FT5x06 (`0x38`) / CST816S (`0x15`) | 待上板验证 |
+| **TEST-TP-02** | `/dev/input0` 节点注册验证 | `ls /dev/input0` | `/dev/input0` 字符设备节点存在 | 待上板验证 |
+| **TEST-TP-03** | 单点触控与坐标精度测试 | `velafit_ai touch 20` | 点击屏幕各区域，输出 X/Y 坐标连续平滑，边缘无死区 | 待上板验证 |
+| **TEST-TP-04** | 多点触控追踪 (Multi-Touch) | `velafit_ai touch 20` | 2~5 指同时按下，各指 ID 独立追踪无跳变 | 待上板验证 |
+| **TEST-TP-05** | 手势识别测试 (Gestures) | `velafit_ai touch 20` | 上下左右划动识别出 `SLIDE_*`，轻敲识别为 `TAP` | 待上板验证 |
+
+
 
 
 

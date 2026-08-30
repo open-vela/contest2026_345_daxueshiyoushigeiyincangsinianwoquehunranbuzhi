@@ -13,3 +13,7 @@ endif()
 if(CONFIG_AUDIO_ES8311)
   target_sources(board PRIVATE board_audio.c)
 endif()
+
+if(CONFIG_INPUT_TOUCHSCREEN)
+  target_sources(board PRIVATE board_touch.c)
+endif()
