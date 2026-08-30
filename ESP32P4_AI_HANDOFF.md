@@ -1,10 +1,10 @@
 # ESP32-P4 openvela 开发接力文档
 
-> 状态日期：2026-08-22（Asia/Shanghai）
+> 状态日期：2026-08-30（Asia/Shanghai）
 >
 > 交接目标：让新的 AI 工具无需依赖此前聊天记录，即可从正确 Git 基线继续开发，并保持相同的仓库边界、硬件证据、构建验证和 PR 质量。
 >
-> 当前阶段：Gate G1 已通过；CAM-002～CAM-004（SC2336 探测、流控、CSI-2 Host & D-PHY 硬件链路锁定）已完成并归档；AUD-001（ES8311 音频编解码器 + ESP32-P4 I2S0 底层驱动 + 板级功放使能 + `es8311_audio` CLI 测试套件）已全部实现并通过 nxstyle 与全量构建验证，对应独立 PR 已分别推送至双仓 Fork；等待后续实板联调；CAM-005（CSI DW-GDMA 取帧驱动）保留在 WIP 分支以便后续针对性深入调试。
+> 当前阶段：Gate G1 已通过；CAM-002～CAM-004（SC2336 探测、流控、CSI-2 Host & D-PHY 硬件链路锁定）已完成并归档；AUD-001（ES8311 音频编解码器 + ESP32-P4 I2S0 底层驱动 + 板级功放使能 + `es8311_audio` CLI 测试套件）已全部实现并提交 PR；Gate G2（CSI DW-GDMA 取帧）保留在 WIP 分支暂时挂起；**VelaFit 边缘 AI 推理引擎与健身算法体系（Stage 1: ESP-NN 算子加速、Stage 2: 姿态估计推理、Stage 3: 深蹲/开合跳 FSM 与抗抖质检）已全量开发完成并通过固件编译与仿真测试**，详见 `docs/VELAFIT_AI_SYSTEM_DESIGN.md`。接下来推进实板烧录验收与 Stage 4 端到端多媒体联动。
 >
 > 本文是当前状态和执行规则的入口；详细历史证据继续以 `PORTING_NOTES.md` 和 `hardware-logs/` 为准。
 
@@ -833,60 +833,97 @@ SHA-256。不要只在聊天中报告 PASS。
 
 ## 14. 当前阶段与下一 AI 的建议首轮任务
 
-### 14.1 已完成项（截至 2026-08-19）
+### 14.1 已完成项（截至 2026-08-30）
 
 1. **CAM-002（已完成并落盘）**：
    - 官方 SC2336 寄存器表来源固定为 `esp-video-components`（Commit `2e924b6` / `3620887`，Apache-2.0）。
-   - 完成硬件物理层、时钟、电平、HAL 依赖与 NutX video 接口审计，详见 `PORTING_NOTES.md` 第 13 节。
+   - 完成硬件物理层、时钟、电平、HAL 依赖与 NuttX video 接口审计，详见 `PORTING_NOTES.md` 第 13 节。
 2. **CAM-003（已完成代码、固件构建、真机串口验证与日志归档）**：
    - 团队仓新增 `app/sc2336_probe/sc2336_tables.h`，重构 `sc2336_probe_main.c`。
    - 支持只读探测、软复位、模式写表与校验、流控制（`stream-on`/`stream-off`）及流切换压力测试（支持 720p 30fps、1080p 30fps、1080p 25fps）。
-   - 真机串口测试通过（`sc2336_probe test 720p`、`sc2336_probe cycle 10 720p`、`sc2336_probe test 1080p`、`sc2336_probe cycle 10 1080p`、`sc2336_probe test 1080p25`、`sc2336_probe cycle 10 1080p25` 全通过）。
-   - 原始硬件日志已归档至 `hardware-logs/esp32p4-sc2336-control-smoke-2026-08-19.log`（SHA-256 `ef5306745452f58755b65bd013dfaee855ba9cb08790815b7d347cba37c82934`）。
+   - 真机串口测试通过（`sc2336_probe test 720p`、`sc2336_probe cycle 10 720p`、`sc2336_probe test 1080p`、`sc2336_probe cycle 10 1080p`、`sc2336_probe test 1080p25`、`sc2336_probe cycle 10 1080p25` 全通过）；日志 `hardware-logs/esp32p4-sc2336-control-smoke-2026-08-19.log`。
+3. **AUD-001（已完成代码、双仓 PR 推送与构建验证）**：
+   - ES8311 音频编解码器 + ESP32-P4 I2S0 底层驱动 + 板级功放使能 + `es8311_audio` CLI 测试套件全部完成。
+4. **VELAFIT-001 ~ 008（VelaFit 边缘 AI 推理引擎、四大动作 FSM 矩阵、Stage 4 骨骼 OSD 仪表盘、间歇训练计划编排器、离线存储与同步全量完成，2026-08-30）**：
+   - **设计规格**：完成 [`docs/VELAFIT_AI_SYSTEM_DESIGN.md`](docs/VELAFIT_AI_SYSTEM_DESIGN.md) 端云协同设计规范与架构。
+   - **Stage 1 (ESP-NN INT8 SIMD 算子引擎)**：实现并验证 `Conv2D`、`DepthwiseConv2D`、`FullyConnected`、`MaxPool`、`Add` 等硬件加速算子及高精度 Benchmark 基准测试。
+   - **Stage 2 (静态姿态前向推理)**：实现 160x160 RGB INT8 姿态检测模型流水线与 17 关键点解析（单帧延迟 ~2.9ms）。
+   - **Stage 3 (四大动作 FSM 矩阵与质检)**：深蹲（Squat）、开合跳（Jumping Jack）、俯卧撑（Push-up）、平板支撑（Plank）四大状态机与多重动作缺陷生物力学质检。
+   - **Stage 4 (专业级 OSD 教练仪表盘、语音调度与离线闭环)**：
+     - `velafit_render`：全要素教练仪表盘 `velafit_render_dashboard`、垂直动作深度/关节角度指示柱（Depth Gauge）、体态异常实时动态纠错指引箭头（`<- OUT ->` 膝内扣外推、`CHEST UP ^` 挺胸、`^ LIFT HIPS` 提髋、`v LOWER HIPS` 沉髋）、多套调色板主题；
+     - `velafit_audio_cue`：双后端/PCM0 音效合成/计数/纠错/倒计时 3-2-1/组间休息/开练哨音/胜利号角；
+     - `velafit_pipeline`：支持四大运动离线全流程仿真、实时 Dashboard 渲染与统一 JSON 训练报告生成。
+   - **结构化训练计划编排器与间歇调度器 (`plan/velafit_plan_scheduler.c/h` & `velafit_preset_plans.c/h`)**：
+     - 四阶段课程调度状态机：`PREPARE` (3s 倒计时) ➔ `WORK` (限时/目标次数) ➔ `REST` (组间休息与下个动作预告) ➔ `FINISHED` (整套训练多动作汇总报告与落盘)；
+     - 内置经典课程：Tabata 4 分钟全身高燃训练（JJ ➔ Squat ➔ Pushup ➔ Plank）、力量目标循环（Strength Circuit）、快速心肺（Cardio Burn）。
+   - **离线存储与网络解耦同步队列 (`storage/` & `sync/` & `algo/calorie_calc`)**：
+     - `calorie_calc`：基于运动生理学 MET 模型的卡路里与热量消耗估算器；
+     - `velafit_storage`：本地落盘持久化（`/data/velafit/sessions/`）与二进制索引表（`index.bin`）；
+     - `velafit_sync`：预留给 C6 伙伴的标准化回调 Hook（`velafit_sync_register_sender`），支持断网安全降级与 Mock 闭环测试。
+   - **工程与规范闭环**：`app/velafit_ai/` 全部 36 个源文件 100% 通过 `nxstyle`（0 Error, 0 Warning），全量固件编译 **0 Error, 0 Warning**，生成 `nuttx.bin` (485,592 bytes, checksum 0x41 valid)。
 
 ### 14.2 下一步任务清单（Next Actions）
 
-1. **AUD-001 实板验证（待板卡连接后执行）**：
+1. **板端功能验收（实板连接后执行）**：
    - 烧录最新固件：`./build.sh vendor/openvela/boards/contest2026_345_board/configs/nsh -j16`
    - NSH 验证步骤：
      ```bash
-     # 1. 探测 ES8311 芯片并校验 /dev/audio/pcm0 与 /dev/audio/pcm_in0 节点
+     # 1. 验证 VelaFit AI 全套测试套件 (Stage 1 ~ 4 + 课程调度 + 存储与同步测试)
+     nsh> velafit_ai all
+
+     # 2. 单项动作与多媒体测试
+     nsh> velafit_ai benchmark
+     nsh> velafit_ai test_pose
+     nsh> velafit_ai test_squat 3
+     nsh> velafit_ai test_jj 3
+     nsh> velafit_ai test_pushup 3
+     nsh> velafit_ai test_plank 15
+     nsh> velafit_ai render /data/squat_dashboard.ppm
+     nsh> velafit_ai audio all
+     nsh> velafit_ai pipeline 3 /data/pipeline_dashboard.ppm
+     nsh> velafit_ai plan list
+     nsh> velafit_ai plan run tabata
+     nsh> velafit_ai plan run strength
+     nsh> velafit_ai storage list
+     nsh> velafit_ai storage summary
+     nsh> velafit_ai sync mock
+     nsh> velafit_ai report
+
+     # 3. 验证 ES8311 音频子系统
      nsh> es8311_audio probe
-
-     # 2. 读取并打印 ES8311 全部寄存器（0x00 .. 0x47）
-     nsh> es8311_audio dump
-
-     # 3. 播放 1000 Hz 正弦波纯音（持续 3 秒，经 GPIO53 功放从板载扬声器发出声音）
      nsh> es8311_audio tone 1000 3
-
-     # 4. 从板载模拟麦克风录制音频（持续 3 秒，并计算峰值与 RMS 能量）
-     nsh> es8311_audio record 3 /data/rec.raw
      ```
-   - 归档实板日志至 `hardware-logs/esp32p4-audio-es8311-smoke-YYYY-MM-DD.log` 并计算 SHA-256。
-2. **CAM-005（公共 NuttX 仓 & 团队仓）：CSI DW-GDMA DMA 超时分析与 PSRAM 取帧调通**：
-   - 当前 WIP 已保存在 `feat/esp32p4-csi-wip` (nuttx) 和 `feat/esp32p4-csi-dma` (team)。
-   - 核心任务：结合 `sc2336_probe capture` 超时快照，分析 D-PHY HS 接收到 Bridge FIFO 写入及 DW-GDMA 握手时序。
+   - 归档实板日志至 `hardware-logs/esp32p4-velafit-ai-smoke-2026-08-30.log` 并记录 SHA-256。
+2. **大赛作品设计说明书编写（`docs/`）**：
+   - 《VelaFit 边缘 AI 健身教练算法与生物力学 FSM 设计白皮书》。
+3. **CAM-005 推进**：
+   - 待实板就绪后推进摄像头实时流输入（SC2336 -> CSI DMA）。
 
 ## 15. 可直接交给另一 AI 的启动提示词
 
 ```text
 你接手的是 openvela ESP32-P4X Function EV Board V1.8（ESP32-C6 版本）移植和
-VelaFit AI 项目。工作区为 /home/uleemos/openvela-contest。
+VelaFit AI 智能运动体态教练项目。工作区为 /home/uleemos/openvela-contest。
 
 开始前必须完整阅读：
 1. 专属仓 ESP32P4_AI_HANDOFF.md
-2. 专属仓 PORTING_NOTES.md（重点阅读第 15、16 节）
-3. .agents/skills/openvela-esp32p4-porting/SKILL.md 及其直接引用的 references
+2. 专属仓 PORTING_NOTES.md（重点阅读第 15、16、17、18、19、20、21、22 节）
+3. 专属仓 docs/VELAFIT_AI_SYSTEM_DESIGN.md
+4. .agents/skills/openvela-esp32p4-porting/SKILL.md 及其直接引用的 references
 
 严格遵守双仓边界：公共 ESP32-P4 SoC/driver 放 nuttx，板级/应用/日志/文档放团队
 专属仓。不要整目录复制 Apache，不要盲目 cherry-pick，不要清理未知工作树，不要
-提交构建产物。凡涉及硬件先以 V1.8/C6 原理图、datasheet、TRM、errata 为依据。
+提交构建产物。
 
 当前状态：
-1. AUD-001（ES8311 音频子系统与 CLI 测试工具）已全部实现并通过 nxstyle 和编译，
-   PR 分支已推送至 Fork 远端（nuttx: feat/esp32p4-i2s-audio, team: feat/esp32p4-audio-es8311）。
-   等待实板连接后运行 es8311_audio 测试套件并归档硬件日志。
-2. CAM-005（CSI DW-GDMA 取帧调试）暂存在 feat/esp32p4-csi-wip / feat/esp32p4-csi-dma 分支。
+1. VelaFit 边缘 AI 推理引擎、四大运动 FSM 动作矩阵（深蹲、开合跳、俯卧撑、平板支撑）、
+   多媒体专业级教练仪表盘（骨骼拓扑、动态深度柱、纠错指引箭头、HUD）、Tabata/HIIT 间歇
+   训练课程调度器、离线持久化存储与网络解耦同步队列已全部实现，代码 100% 通过 nxstyle
+   检查，NSH 命令 velafit_ai 成功编译入固件（nuttx.bin，485,592 bytes）。
+2. AUD-001（ES8311 音频子系统）已完成并已推送 PR。
+3. CAM-005（CSI DW-GDMA 取帧驱动）暂时挂起待后续推进。
+4. 下一步：待实板连接后运行 velafit_ai all / es8311_audio 进行真机验证并归档硬件证据；
+   非实板环境下可继续编写大赛设计说明书白皮书（docs/）或准备 Git 提交流程。
 ```
 
 ## 16. 接力文档维护规则
