@@ -135,7 +135,7 @@ PR head：`uleemos:feat/esp32p4-soc-contest2026`。
 截至 2026-08-30，PR #340 为 Open、非 Draft、GitHub 判定 MERGEABLE；CLA、
 checkpatch 和已有 CI 全部通过，正随开发阶段追加公共 SoC 驱动。
 
-该分支已有 11 个提交，公共 SoC 驱动持续以独立 commit 追加：
+该分支已有 12 个提交，公共 SoC 驱动持续以独立 commit 追加：
 
 ```text
 896b5f10ea4  risc-v: add minimal ESP32-P4 bring-up support
@@ -149,6 +149,7 @@ d6d995a6748  risc-v/esp32p4: add MIPI CSI controller and D-PHY driver
 85685fb36fd  esp32p4: add I2S lower-half driver and fix ES8311 mutex include
 6ac30d6cf0f  risc-v/esp32p4: add MIPI DSI and framebuffer support
 d02a5314c1e  arch/risc-v/esp32p4: add 2D-DMA controller and PPA hardware acceleration driver
+c52f4ae52e2  arch/risc-v/esp32p4: add SDMMC Host Controller driver and 4-bit bus support
 ```
 
 不要等待 PR #340 合入才继续开发。新的公共 SoC 层能力可以在该分支继续形成独立
