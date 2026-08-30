@@ -48,6 +48,9 @@
 #include "velafit_pipeline.h"
 #include "velafit_plan_scheduler.h"
 #include "velafit_preset_plans.h"
+#include "velafit_kws.h"
+#include "velafit_cloud_agent.h"
+#include "velafit_config.h"
 
 /****************************************************************************
  * Private Functions
@@ -76,6 +79,9 @@ static void print_usage(void)
   printf("  plan        [cmd]    - Routine Planner (list/run [name])\n");
   printf("  storage     [cmd]    - Offline Storage (list/info/summary)\n");
   printf("  sync        [cmd]    - Cloud Sync (status/flush/mock)\n");
+  printf("  config      [cmd]    - Runtime & Cloud Config (show/set)\n");
+  printf("  kws         [sim]    - Local Keyword Spotting (Wakeup Test)\n");
+  printf("  cloud       [sim]    - Xiaomi MIMO Multimodal Cloud Agent\n");
   printf("  report               - Edge-Cloud Workout JSON Report\n");
   printf("  all                  - Run All Verification Stages\n");
   printf("=======================================================\n\n");
@@ -790,6 +796,92 @@ static void cmd_report(void)
 }
 
 /****************************************************************************
+ * Name: cmd_kws
+ ****************************************************************************/
+
+static int cmd_kws(const char *mode)
+{
+  return velafit_kws_run_simulation(mode);
+}
+
+/****************************************************************************
+ * Name: cmd_cloud
+ ****************************************************************************/
+
+static int cmd_cloud(void)
+{
+  return velafit_cloud_agent_run_simulation();
+}
+
+/****************************************************************************
+ * Name: cmd_config
+ ****************************************************************************/
+
+static int cmd_config(const char *sub, const char *arg1, const char *arg2)
+{
+  if (sub == NULL || strcmp(sub, "show") == 0)
+    {
+      velafit_config_print();
+    }
+  else if (strcmp(sub, "set_url") == 0)
+    {
+      if (arg1 == NULL)
+        {
+          printf("Usage: velafit_ai config set_url <url>\n");
+          return -EINVAL;
+        }
+
+      velafit_config_set_url(arg1);
+      printf("Config Base URL updated: %s\n", arg1);
+    }
+  else if (strcmp(sub, "set_key") == 0)
+    {
+      if (arg1 == NULL)
+        {
+          printf("Usage: velafit_ai config set_key <key>\n");
+          return -EINVAL;
+        }
+
+      velafit_config_set_key(arg1);
+      printf("Config API Key updated successfully (persisted).\n");
+    }
+  else if (strcmp(sub, "set_model") == 0)
+    {
+      if (arg1 == NULL)
+        {
+          printf("Usage: velafit_ai config set_model <model>\n");
+          return -EINVAL;
+        }
+
+      velafit_config_set_model(arg1);
+      printf("Config Model updated: %s\n", arg1);
+    }
+  else if (strcmp(sub, "set_wifi") == 0)
+    {
+      if (arg1 == NULL)
+        {
+          printf("Usage: velafit_ai config set_wifi <ssid> [pwd]\n");
+          return -EINVAL;
+        }
+
+      velafit_config_set_wifi(arg1, arg2);
+      printf("Config Wi-Fi updated: SSID='%s'\n", arg1);
+    }
+  else if (strcmp(sub, "reset") == 0)
+    {
+      velafit_config_reset();
+      printf("Config reset to defaults.\n");
+    }
+  else
+    {
+      printf("Unknown config subcommand: %s\n", sub);
+      return -EINVAL;
+    }
+
+  return OK;
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -869,6 +961,22 @@ int main(int argc, char *argv[])
       const char *sub = (argc >= 3) ? argv[2] : "status";
       cmd_sync(sub);
     }
+  else if (strcmp(cmd, "config") == 0)
+    {
+      const char *sub  = (argc >= 3) ? argv[2] : "show";
+      const char *arg1 = (argc >= 4) ? argv[3] : NULL;
+      const char *arg2 = (argc >= 5) ? argv[4] : NULL;
+      cmd_config(sub, arg1, arg2);
+    }
+  else if (strcmp(cmd, "kws") == 0)
+    {
+      const char *mode = (argc >= 3) ? argv[2] : "test";
+      cmd_kws(mode);
+    }
+  else if (strcmp(cmd, "cloud") == 0)
+    {
+      cmd_cloud();
+    }
   else if (strcmp(cmd, "report") == 0)
     {
       cmd_report();
@@ -876,7 +984,7 @@ int main(int argc, char *argv[])
   else if (strcmp(cmd, "all") == 0)
     {
       printf("\n=======================================================\n");
-      printf("  VelaFit AI Full Suite (Stage 1 ~ 4 + Plan + Sync)\n");
+      printf("  VelaFit AI Full Suite (Stage 1 ~ 6 + Config + MIMO)\n");
       printf("=======================================================\n");
       esp_nn_run_benchmarks();
       cmd_test_pose();
@@ -892,6 +1000,9 @@ int main(int argc, char *argv[])
       cmd_plan("run", "tabata");
       cmd_storage("list", NULL);
       cmd_sync("mock");
+      cmd_config("show", NULL, NULL);
+      cmd_kws("test");
+      cmd_cloud();
       cmd_report();
       printf("=======================================================\n");
       printf("  VelaFit AI Full Verification Suite: [ALL PASS]\n");
