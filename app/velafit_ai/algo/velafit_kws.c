@@ -223,13 +223,16 @@ int velafit_kws_run_simulation(const char *test_mode)
   printf("  State: %s (Expected LISTENING)\n",
          velafit_kws_is_triggered() ? "TRIGGERED" : "LISTENING");
 
-  printf("  [2/3] Feeding Vocal Keyword Pattern 'VelaFit'...\n");
+  printf("  [2/3] Feeding Vocal Keyword '你好，openvela'...\n");
   for (int i = 0; i < 6; i++)
     {
       velafit_kws_feed_pcm(frame_keyword, VELAFIT_KWS_FRAME_SAMPLES);
     }
 
   bool matched = velafit_kws_is_triggered();
+  printf("  Keyword: \"%s\" / \"%s\"\n",
+         VELAFIT_KWS_KEYWORD_PRIMARY,
+         VELAFIT_KWS_KEYWORD_EN);
   printf("  State: %s (Confidence: %.2f) [OK]\n",
          matched ? "TRIGGERED / WAKEUP" : "MISSED",
          g_kws_ctx.confidence);

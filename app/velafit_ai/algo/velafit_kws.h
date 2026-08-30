@@ -35,8 +35,9 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define VELAFIT_KWS_KEYWORD_PRIMARY     "velafit"
-#define VELAFIT_KWS_KEYWORD_SECONDARY   "xiao_ai"
+#define VELAFIT_KWS_KEYWORD_PRIMARY     "nihao_openvela"    /* 你好，openvela */
+#define VELAFIT_KWS_KEYWORD_EN          "hello_openvela"    /* Hello, openvela */
+#define VELAFIT_KWS_KEYWORD_SECONDARY   "velafit"           /* VelaFit */
 
 #define VELAFIT_KWS_SAMPLE_RATE         16000
 #define VELAFIT_KWS_FRAME_SAMPLES       320   /* 20 ms */
