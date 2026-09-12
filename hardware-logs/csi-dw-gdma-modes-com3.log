@@ -1,0 +1,79 @@
+ NuttX-13.0.0
+nsh>
+===== COMMAND: sc2336_probe dma-capture 1 720p =====
+sc2336_probe dma-capture 1 720p
+========================================
+ ESP32-P4 CSI DW-GDMA PSRAM Capture Test
+ Mode=720p frames=1 duration=0s
+========================================
+Initializing ESP32-P4 MIPI CSI controller (720p: 1280x720, 2 lanes, 480 Mbps)...
+SC2336 soft-reset: writing reg 0x0103 = 0x01...
+SC2336 soft-reset PASS, chip_id=0xcb3a restored
+SC2336 init mode: 720p...
+SC2336 init table written successfully (165 registers)
+SC2336 readback verification (720p):
+  CLK_CTRL (0x3106)   = 0x05 (expected 0x05)
+  ANA_INIT_1 (0x36e9) = 0x53 (expected 0x53)
+  ANA_INIT_2 (0x37f9) = 0x53 (expected 0x53)
+  VTS      (0x320e/f) = 1500
+SC2336 register verification PASS
+SC2336 stream control: setting 0x0100 = 0x01 (STREAM_ON)...
+SC2336 STREAM_ON PASS (target=0x01, I2C ACK OK)
+SC2336 stream control: setting 0x0100 = 0x00 (STREAM_OFF)...
+SC2336 STREAM_OFF PASS (target=0x00, I2C ACK OK)
+CSI FRAME PASS seq=1 addr=0x48002380 bytes=1152000 crc32=dad901a4 guard=PASS crc_changes=0
+CSI DMA SUMMARY frames=1 crc_changes=0 timeouts=0 dec=0 slv=0 lli=0 guard=0
+CSI DMA STABILITY PASS
+nsh>
+===== COMMAND: sc2336_probe dma-capture 1 1080p =====
+ [K
+nsh> [Ksc2336_probe dma-capture 1 1080p
+========================================
+ ESP32-P4 CSI DW-GDMA PSRAM Capture Test
+ Mode=1080p frames=1 duration=0s
+========================================
+Initializing ESP32-P4 MIPI CSI controller (1080p: 1920x1080, 2 lanes, 480 Mbps)...
+SC2336 soft-reset: writing reg 0x0103 = 0x01...
+SC2336 soft-reset PASS, chip_id=0xcb3a restored
+SC2336 init mode: 1080p...
+SC2336 init table written successfully (149 registers)
+SC2336 readback verification (1080p):
+  CLK_CTRL (0x3106)   = 0x05 (expected 0x05)
+  ANA_INIT_1 (0x36e9) = 0x53 (expected 0x53)
+  ANA_INIT_2 (0x37f9) = 0x53 (expected 0x53)
+  VTS      (0x320e/f) = 1200
+SC2336 register verification PASS
+SC2336 stream control: setting 0x0100 = 0x01 (STREAM_ON)...
+SC2336 STREAM_ON PASS (target=0x01, I2C ACK OK)
+SC2336 stream control: setting 0x0100 = 0x00 (STREAM_OFF)...
+SC2336 STREAM_OFF PASS (target=0x00, I2C ACK OK)
+CSI FRAME PASS seq=1 addr=0x48002380 bytes=2592000 crc32=3664745a guard=PASS crc_changes=0
+CSI DMA SUMMARY frames=1 crc_changes=0 timeouts=0 dec=0 slv=0 lli=0 guard=0
+CSI DMA STABILITY PASS
+nsh>
+===== COMMAND: sc2336_probe dma-capture 1 1080p25 =====
+[K
+nsh> [Ksc2336_probe dma-capture 1 1080p25
+========================================
+ ESP32-P4 CSI DW-GDMA PSRAM Capture Test
+ Mode=1080p25 frames=1 duration=0s
+========================================
+Initializing ESP32-P4 MIPI CSI controller (1080p25: 1920x1080, 2 lanes, 480 Mbps)...
+SC2336 soft-reset: writing reg 0x0103 = 0x01...
+SC2336 soft-reset PASS, chip_id=0xcb3a restored
+SC2336 init mode: 1080p25...
+SC2336 init table written successfully (130 registers)
+SC2336 readback verification (1080p25):
+  CLK_CTRL (0x3106)   = 0x05 (expected 0x05)
+  ANA_INIT_1 (0x36e9) = 0x20 (expected 0x20)
+  ANA_INIT_2 (0x37f9) = 0x27 (expected 0x27)
+  VTS      (0x320e/f) = 1200
+SC2336 register verification PASS
+SC2336 stream control: setting 0x0100 = 0x01 (STREAM_ON)...
+SC2336 STREAM_ON PASS (target=0x01, I2C ACK OK)
+SC2336 stream control: setting 0x0100 = 0x00 (STREAM_OFF)...
+SC2336 STREAM_OFF PASS (target=0x00, I2C ACK OK)
+CSI FRAME PASS seq=1 addr=0x48002380 bytes=2592000 crc32=ccbf7c70 guard=PASS crc_changes=0
+CSI DMA SUMMARY frames=1 crc_changes=0 timeouts=0 dec=0 slv=0 lli=0 guard=0
+CSI DMA STABILITY PASS
+nsh>

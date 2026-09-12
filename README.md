@@ -66,7 +66,7 @@ python -m esptool --chip esp32p4 -b 921600 --before default_reset --after hard_r
 | 阶段 | 里程碑 | 核心内容与验收方式 | 当前状态 |
 | :--- | :--- | :--- | :--- |
 | **G1** | 平台基线 | RISC-V 核心、32MB PSRAM、16MB Flash、I2C/GPIO、20/20 冷启动 | **已通过** |
-| **G2** | 摄像头取流 | SC2336 探测、流控制、MIPI CSI GDMA 帧捕获 | **暂停攻坚** |
+| **G2** | 摄像头取流 | SC2336 探测、流控制、MIPI CSI DW-GDMA PSRAM 帧捕获 | **核心取帧及 5 分钟稳定性已通过；30 分钟整机 soak 待执行** |
 | **Stage 1** | 推理引擎移植 | TFLM + ESP-NN SIMD 汇编算子集成与 Benchmark | **当前进行中** |
 | **Stage 2** | 姿态检测验证 | 载入单张 160x160 INT8 测试图，解析 17 关键点 | **待开展** |
 | **Stage 3** | 动作与质检仿真 | 注入连续关键点时序流，验证深蹲/开合跳 FSM 与防抖 | **待开展** |

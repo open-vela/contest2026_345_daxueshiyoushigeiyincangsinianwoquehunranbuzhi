@@ -11,6 +11,28 @@ python run_nsh.py --port COM3 --timeout 1840 `
   --log g1-stability.log --expect "G1 PASS" "g1_smoke 1800"
 ```
 
+Capture and validate a guarded RAW10 frame after a power cycle:
+
+```powershell
+python run_nsh.py --port COM3 --timeout 25 `
+  --log csi-dw-gdma-post-power-com3.log `
+  --expect "CSI DMA STABILITY PASS" `
+  "sc2336_probe dma-capture 1 720p"
+```
+
+Run bounded camera stability validation:
+
+```powershell
+python run_nsh.py --port COM3 --timeout 330 `
+  --log csi-dw-gdma-300s-com3.log `
+  --expect "CSI DMA STABILITY PASS" `
+  "sc2336_probe dma-stability 300 720p"
+```
+
+`run_nsh.py` retries the same COM port if USB Serial/JTAG briefly disappears
+during re-enumeration.  A physical power removal/restoration must still be
+recorded separately; reopening COM3 is not evidence of a cold power cycle.
+
 Run ten software warm resets:
 
 ```powershell
