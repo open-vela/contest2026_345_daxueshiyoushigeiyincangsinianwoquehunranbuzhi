@@ -1,10 +1,10 @@
 # ESP32-P4 openvela 开发接力文档
 
-> 状态日期：2026-08-30（Asia/Shanghai）
+> 状态日期：2026-09-12（Asia/Shanghai）
 >
 > 交接目标：让新的 AI 工具无需依赖此前聊天记录，即可从正确 Git 基线继续开发，并保持相同的仓库边界、硬件证据、构建验证和 PR 质量。
 >
-> 当前阶段：Gate G1 已通过；CAM-002～CAM-004（SC2336 探测、流控、CSI-2 Host & D-PHY 硬件链路锁定）已完成并归档；AUD-001（ES8311 音频编解码器 + ESP32-P4 I2S0 底层驱动 + 板级功放使能 + `es8311_audio` CLI 测试套件）已全部实现并提交 PR；Gate G2（CSI DW-GDMA 取帧）保留在 WIP 分支暂时挂起；**VelaFit 边缘 AI 推理引擎与健身算法体系（Stage 1: ESP-NN 算子加速、Stage 2: 姿态估计推理、Stage 3: 深蹲/开合跳 FSM 与抗抖质检）已全量开发完成并通过固件编译与仿真测试**，详见 `docs/VELAFIT_AI_SYSTEM_DESIGN.md`。接下来推进实板烧录验收与 Stage 4 端到端多媒体联动。
+> 当前阶段：Gate G1 已通过；CAM-002～CAM-005 已完成并归档。CSI DW-GDMA 已能把 SC2336 720p/1080p packed RAW10 完整搬运到 PSRAM，并通过首帧、100 帧、5 分钟及重新上电首帧验证。标准 `/dev/video0` 接口和 30 分钟整机 soak 仍待完成，因此不宣称完整 Gate G2 长稳验收。AUD-001 已实现并提交 PR；VelaFit Stage 1～3 已通过固件编译与仿真测试。下一步推进 Camera 标准消费接口、30 分钟整机联测及 Stage 4 多媒体联动。
 >
 > 本文是当前状态和执行规则的入口；详细历史证据继续以 `PORTING_NOTES.md` 和 `hardware-logs/` 为准。
 
@@ -320,7 +320,7 @@ Remaining assumptions and hardware tests:
 | Camera SC2336 依赖与官方来源审计 (CAM-002) | 已完成并落盘 | `PORTING_NOTES.md` 第 13 节；Apache-2.0 官方模式表 |
 | Camera SC2336 最小初始化与流控制 (CAM-003) | 已真机通过 | `app/sc2336_probe/`（ID/Reset/Init/Stream-ON/OFF/Cycle 720p/1080p 全通过）；日志 `esp32p4-sc2336-control-smoke-2026-08-19.log` |
 | ESP32-P4 MIPI CSI 控制器与 D-PHY 接收链路 (CAM-004) | 已真机通过 | `esp32p4_mipi_csi.c/h`、`hal_esp32p4.mk`、`nxstyle PASS`；真机 720p/1080p/1080p25 D-PHY 联动测试全部 ALL PASS，零 PHY 致命错误；日志 `esp32p4-csi-dphy-smoke-2026-08-19.log` |
-| Camera CSI DMA 与 PSRAM 取帧驱动 (CAM-005) | 待实现 | 下一主线（Gate G2） |
+| Camera CSI DW-GDMA 与 PSRAM 取帧驱动 (CAM-005) | 已真机通过 | NuttX `d3b28596e8d`；720p/1080p30/1080p25 首帧、720p 100 帧、5 分钟及重新上电首帧均 PASS；`hardware-logs/csi-dw-gdma-validation.md` |
 | MIPI DSI/LCD/Touch | 未实现 | Camera 第一帧后独立推进 |
 | 通用 GP-SPI | 尚未作为独立子系统完成 | 不属于当前 Camera 关键路径，可另开增量 |
 | Ethernet/C6 Wi-Fi/Audio | 未实现 | G4 后再按优先级推进，不能阻塞离线闭环 |
@@ -554,7 +554,7 @@ hardware/log evidence
 
 禁止只说“我这里是最新”。
 
-## 8. 下一阶段：Camera 连续取帧（Gate G2）
+## 8. Camera 连续取帧（Gate G2）
 
 ### 8.1 当前入口条件
 
@@ -566,19 +566,22 @@ hardware/log evidence
 - I2C0 100 kHz repeated-start 已验证。
 - 32 MB PSRAM 和 16 MB Flash/MTD 已验证。
 
-尚未满足：
+2026-09-12 已新增满足：
 
-- 尚未固定可提交的 SC2336 初始化表来源、版本、许可证和模式参数。
-- 尚未实现 sensor stream-on/off。
-- 尚未把 ESP32-P4 MIPI CSI/ISP/GDMA 能力接入 NuttX。
-- 尚未建立 `/dev/video0` 或稳定的阶段性 frame API。
-- 尚未得到第一帧。
+- SC2336 初始化表来源、版本、许可证和三种模式参数均已固定。
+- Sensor stream-on/off、CSI Host/D-PHY/Bridge、ISP rev3 输入门和 DW-GDMA
+  已接入；阶段性 frame API 可稳定返回 PSRAM RAW10 帧。
+- 720p/1080p30/1080p25 第一帧、720p 100 帧、720p 300 秒以及重新上电后的
+  720p 第一帧均通过，详见 `hardware-logs/csi-dw-gdma-validation.md`。
 
-### 8.2 当前代码能力差距
+尚未满足：标准 `/dev/video0` consumer 接口和 30 分钟整机稳定性验收。
 
-当前 openvela NuttX 已有通用 `drivers/video`、V4L2 capture 框架和
-`video_register()`，也已有通用 MIPI DSI 框架；但当前 ESP32-P4 分支没有
-MIPI CSI controller lower-half，也没有 ESP32-P4 Camera/CSI driver。
+### 8.2 当前代码能力与剩余差距
+
+当前 ESP32-P4 分支已有 CSI controller/D-PHY/Bridge 和阶段性 DW-GDMA frame
+capture API，NuttX 公共驱动提交为 `d3b28596e8d2d02bf2a41967103c2edb6ca1d8e5`。
+剩余主要差距是把该接口接入通用 `drivers/video`/V4L2 capture 框架并注册
+`/dev/video0`，以及与显示、音频和 AI workload 一起完成 30 分钟整机 soak。
 
 固定的 `esp-hal-3rdparty` commit
 `8d0a898910084206721a0892ab093021bca1496a` 已包含可供分析的底层组件：
@@ -838,7 +841,7 @@ SHA-256。不要只在聊天中报告 PASS。
 
 ## 14. 当前阶段与下一 AI 的建议首轮任务
 
-### 14.1 已完成项（截至 2026-08-30）
+### 14.1 已完成项（截至 2026-09-12）
 
 1. **CAM-002（已完成并落盘）**：
    - 官方 SC2336 寄存器表来源固定为 `esp-video-components`（Commit `2e924b6` / `3620887`，Apache-2.0）。
@@ -849,7 +852,11 @@ SHA-256。不要只在聊天中报告 PASS。
    - 真机串口测试通过（`sc2336_probe test 720p`、`sc2336_probe cycle 10 720p`、`sc2336_probe test 1080p`、`sc2336_probe cycle 10 1080p`、`sc2336_probe test 1080p25`、`sc2336_probe cycle 10 1080p25` 全通过）；日志 `hardware-logs/esp32p4-sc2336-control-smoke-2026-08-19.log`。
 3. **AUD-001（已完成代码、双仓 PR 推送与构建验证）**：
    - ES8311 音频编解码器 + ESP32-P4 I2S0 底层驱动 + 板级功放使能 + `es8311_audio` CLI 测试套件全部完成。
-4. **VELAFIT-001 ~ 008（VelaFit 边缘 AI 推理引擎、四大动作 FSM 矩阵、Stage 4 骨骼 OSD 仪表盘、间歇训练计划编排器、离线存储与同步全量完成，2026-08-30）**：
+4. **CAM-004/CAM-005/CAM-007 分阶段验收（已完成代码、构建、烧录、真机验证和日志归档）**：
+   - NuttX 提交 `d3b28596e8d` 实现 CSI DW-GDMA、PSRAM 帧缓冲区、cache ownership、guard、CRC 和错误统计。
+   - 720p/1080p30/1080p25 第一帧、720p 100 帧、5 分钟以及重新上电后的 720p 第一帧均通过；详见 `hardware-logs/csi-dw-gdma-validation.md`。
+   - `/dev/video0` 和 30 分钟整机 soak 尚待完成。
+5. **VELAFIT-001 ~ 008（VelaFit 边缘 AI 推理引擎、四大动作 FSM 矩阵、Stage 4 骨骼 OSD 仪表盘、间歇训练计划编排器、离线存储与同步全量完成，2026-08-30）**：
    - **设计规格**：完成 [`docs/VELAFIT_AI_SYSTEM_DESIGN.md`](docs/VELAFIT_AI_SYSTEM_DESIGN.md) 端云协同设计规范与架构。
    - **Stage 1 (ESP-NN INT8 SIMD 算子引擎)**：实现并验证 `Conv2D`、`DepthwiseConv2D`、`FullyConnected`、`MaxPool`、`Add` 等硬件加速算子及高精度 Benchmark 基准测试。
    - **Stage 2 (静态姿态前向推理)**：实现 160x160 RGB INT8 姿态检测模型流水线与 17 关键点解析（单帧延迟 ~2.9ms）。
@@ -903,8 +910,9 @@ SHA-256。不要只在聊天中报告 PASS。
    - 归档实板日志至 `hardware-logs/esp32p4-velafit-ai-smoke-2026-08-30.log` 并记录 SHA-256。
 2. **大赛作品设计说明书编写（`docs/`）**：
    - 已完成：《VelaFit 边缘 AI 健身教练算法与生物力学 FSM 设计白皮书》与《小米 MIMO 多模态端云协同系统需求与工程实施白皮书》。
-3. **CAM-005 推进**：
-   - 待实板就绪后推进摄像头实时流输入（SC2336 -> CSI DMA）。
+3. **Camera G2 收尾**：
+   - CAM-005 已完成；下一步接入 `/dev/video0`，执行 30 分钟整机 soak，并记录
+     FPS、错误计数、heap/PSRAM 和 buffer queue 水位。
 
 ## 15. 可直接交给另一 AI 的启动提示词
 
@@ -928,8 +936,8 @@ VelaFit AI 智能运动体态教练项目。工作区为 /home/uleemos/openvela-
    端侧本地 KWS 关键词唤醒引擎、小米 MIMO 多模态端云协同客户端与仿真器已全部实现，
    41 个源码文件 100% 通过 nxstyle 检查，全量固件编译通过（0 Error, 0 Warning）。
 2. AUD-001（ES8311 音频子系统）已完成并已推送 PR。
-3. CAM-005（CSI DW-GDMA 取帧驱动）暂时挂起待后续推进。
-4. 下一步：待实板连接后运行 velafit_ai all / es8311_audio 进行真机验证并归档硬件证据。
+3. CAM-005（CSI DW-GDMA PSRAM 取帧）已完成并通过首帧、100 帧、5 分钟及重新上电首帧验证；NuttX commit `d3b28596e8d`。
+4. 下一步：完成 `/dev/video0`、Camera 30 分钟整机 soak，并运行 velafit_ai all / es8311_audio 进行多媒体真机验证与证据归档。
 ```
 
 ## 16. 接力文档维护规则
@@ -945,4 +953,3 @@ VelaFit AI 智能运动体态教练项目。工作区为 /home/uleemos/openvela-
 
 本文应始终回答四个问题：现在从哪个 SHA 开始、哪些事实真机验证过、下一项最小
 工作是什么、完成后应该向哪个仓和哪个 base branch 提交 PR。
-

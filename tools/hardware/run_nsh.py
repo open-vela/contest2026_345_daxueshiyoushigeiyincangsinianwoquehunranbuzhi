@@ -28,6 +28,34 @@ def open_port(port_name: str, deadline: float) -> serial.Serial:
     raise SerialException(f"{port_name} did not become available")
 
 
+def reopen_port(port: serial.Serial, deadline: float) -> None:
+    """Reopen the same Serial object after USB Serial/JTAG re-enumeration."""
+    port.close()
+    while time.monotonic() < deadline:
+        try:
+            port.open()
+            return
+        except (OSError, SerialException):
+            time.sleep(0.2)
+
+    raise SerialException(f"{port.port} did not become available")
+
+
+def write_command(port: serial.Serial, payload: bytes) -> None:
+    """Reset input and write, retrying across a transient COM re-enumeration."""
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        try:
+            port.reset_input_buffer()
+            port.write(payload)
+            port.flush()
+            return
+        except (OSError, SerialException):
+            reopen_port(port, deadline)
+
+    raise SerialException(f"write to {port.port} timed out")
+
+
 def read_until_prompt(
     port: serial.Serial, timeout: float, command: bytes | None = None
 ) -> bytes:
@@ -37,8 +65,7 @@ def read_until_prompt(
         try:
             chunk = port.read(port.in_waiting or 1)
         except (OSError, SerialException):
-            port.close()
-            port = open_port(port.port, time.monotonic() + 10)
+            reopen_port(port, time.monotonic() + 10)
             continue
 
         if chunk:
@@ -70,8 +97,8 @@ def main() -> int:
     port = open_port(args.port, time.monotonic() + 20)
     transcript = bytearray()
     try:
-        port.write(b"\x03\r\n")
-        transcript.extend(read_until_prompt(port, 5))
+        write_command(port, b"\r\n")
+        transcript.extend(read_until_prompt(port, 15))
         time.sleep(0.25)
         port.read(port.in_waiting or 1)
         for command in args.commands:
@@ -79,10 +106,8 @@ def main() -> int:
             sys.stdout.buffer.write(marker)
             sys.stdout.buffer.flush()
             transcript.extend(marker)
-            port.reset_input_buffer()
             encoded = command.encode("ascii")
-            port.write(encoded + b"\r\n")
-            port.flush()
+            write_command(port, encoded + b"\r\n")
             transcript.extend(read_until_prompt(port, args.timeout, encoded))
     finally:
         port.close()

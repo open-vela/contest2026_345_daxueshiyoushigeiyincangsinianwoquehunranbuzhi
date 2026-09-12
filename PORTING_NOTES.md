@@ -1299,8 +1299,79 @@ nsh> velafit_ai sdcard
 | **TEST-SDMMC-04** | 文件读写吞吐量与完整性 | `velafit_ai sdcard` | 读写测试通过（Integrity: PASS，速率正常） | 待上板验证 |
 | **TEST-SDMMC-05** | 掉电/拔插保护与降级 | 拔出 TF 卡后启动 | 自动降级为 `/data/velafit`，系统不卡死 | 待上板验证 |
 
+## 27. CAM-005/CAM-007：CSI DW-GDMA PSRAM 取帧闭环（2026-09-12）
 
+### 27.1 结论与提交基线
 
+ESP32-P4 rev v3.2 + SC2336 的 packed RAW10 数据已能通过 CSI Bridge 和
+DW-GDMA 完整写入 PSRAM。公共 NuttX 驱动提交为
+`d3b28596e8d2d02bf2a41967103c2edb6ca1d8e5`，最终烧录镜像 SHA-256 为
+`120e4e4cdc89c91ef25624a2cb2f9fa11ba2e945ec7765b09916ecec5c80c0dc`。
+
+实现参考了 openvela NuttX PR
+[#342](https://github.com/open-vela/nuttx/pull/342) 对 ESP32-P4 DW-GDMA
+通道、LLI、外设握手和中断状态处理的组织方式，但 CSI RX 的方向、触发源、帧边界、
+PSRAM cache ownership 和 bridge 尾包约束均按摄像头数据路径独立实现，没有直接复制
+另一外设的传输参数。
+
+### 27.2 根因与修复
+
+1. ESP32-P4 rev3 的 CSI 数据入口还受共享 ISP front-end gate 控制。CSI Host 与
+   D-PHY 即使已经锁定，`mipi_data_en` 未打开时 Bridge 仍收不到像素。RAW10 路径保持
+   ISP bypass，仅使能 front end，并把 HSIZE 配为每行 32-bit word 数
+   `ceil(width * 10 / 32)`。
+2. 固定 512 个 64-bit word 的 Bridge request 不能整除目标帧。720p RAW10 为
+   144,000 words，尾余 128；1080p RAW10 为 324,000 words，尾余 32，导致帧尾
+   永远不发出。驱动现选择不超过 512、且能整除当前帧长度的最大 2 次幂 burst：
+   720p 使用 128，1080p 使用 32。
+3. DW-GDMA 使用 self-flow control 和精确 block length 作为目的缓冲区硬边界；LLI
+   元数据位于 SRAM，帧数据使用 cache/MMU 可访问的 PSRAM 地址。CPU 接管帧前按
+   32 KiB 分块执行 M2C cache invalidate，并检查 DMA 实际 DAR 长度和前后 guard。
+4. 初始化不再复位全局 DW-GDMA，避免影响 DSI、音频等共享 DMA 用户；只复位和清理
+   CSI 所属通道。
+
+### 27.3 构建、烧录与实板证据
+
+构建命令（GCC 13.4.0，退出码 0）：
+
+```sh
+env PATH=/home/uleemos/openvela-contest/.pip_packages/bin:/home/uleemos/openvela-contest/prebuilts/gcc/linux-x86_64/riscv-none-elf/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  make -C nuttx EXTRAFLAGS='-Wno-cpp -Wno-deprecated-declarations' -j8
+```
+
+最终 `nuttx.bin` 为 236,800 bytes，通过 COM3/USB Serial-JTAG 下载并交互。验收结果：
+
+| 测试 | 结果 |
+| --- | --- |
+| 720p RAW10 第一帧 | 1,152,000 bytes，CRC32 `776b58c3`，guard PASS |
+| 1080p30 RAW10 第一帧 | 2,592,000 bytes，CRC32 `846ce9bb`，guard PASS |
+| 1080p25 RAW10 第一帧 | 2,592,000 bytes，CRC32 `d0afc06a`，guard PASS |
+| 720p 100 帧 | 100/100，99 次 CRC 变化，DMA/guard 错误全 0 |
+| 720p 300 秒 | 2,132 帧，2,131 次 CRC 变化，DMA/guard 错误全 0 |
+| 重新上电后 720p 第一帧 | 1,152,000 bytes，CRC32 `4f707140`，guard PASS，DMA 错误全 0 |
+
+300 秒项使用紧邻最终版本的固件
+`a3361b523eeb85a4f3ad0d1820fa910a7a5d00d9f27dd4a6f40735d0c79f13be`；最终版本
+移除了共享全局 DMA reset 并泛化 burst 计算，720p 实际 burst 和数据路径未变化。
+最终版本又独立完成了三模式、100 帧和重新上电首帧回归。
+
+证据索引见 `hardware-logs/csi-dw-gdma-validation.md`，原始串口记录为：
+
+- `hardware-logs/csi-dw-gdma-final-com3.log`
+- `hardware-logs/csi-dw-gdma-300s-com3.log`
+- `hardware-logs/csi-dw-gdma-post-power-com3.log`
+- `hardware-logs/csi-dw-gdma-modes-com3.log`
+- `hardware-logs/csi-dw-gdma-100frames-com3.log`
+
+标记状态：**peripheral-tested**。CAM-005 以及 CAM-007 的 1 帧、100 帧、5 分钟
+分阶段验收已经闭环；标准 NuttX `/dev/video0` consumer 接口和原计划要求的 30 分钟
+整机 soak 尚未完成，不能据此宣称 Gate G2 的完整长稳验收已经结束。
+
+归档前从提交态重新构建得到 SHA-256
+`ff23c28962b864c2ecafdec017023ce39840523a22e379e5f4873e03dd9a1774`，构建与
+COM3 烧录校验均成功。烧录后的 esptool hard reset 出现 Windows COM3 写超时，且
+`uname -a` 同样无法写入，摄像头命令并未开始，因此该次不计入 Camera PASS/FAIL。
+下次物理重新上电后应补跑三模式首帧和 100 帧回归；详细说明见证据索引。
 
 
 

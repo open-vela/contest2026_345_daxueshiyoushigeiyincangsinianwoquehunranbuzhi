@@ -239,8 +239,8 @@ static int sc2336_init_table(int fd, const struct sc2336_reg_s *table,
           ret = sc2336_write_retry(fd, table[idx].reg, table[idx].val);
           if (ret < 0)
             {
-              fprintf(stderr,
-                      "SC2336 FAIL write reg idx=%zu reg=0x%04x val=0x%02x ret=%d\n",
+              fprintf(stderr, "SC2336 FAIL write reg idx=%zu reg=0x%04x"
+                              " val=0x%02x ret=%d\n",
                       idx, table[idx].reg, table[idx].val, ret);
               return ret;
             }
@@ -253,16 +253,19 @@ static int sc2336_init_table(int fd, const struct sc2336_reg_s *table,
   return 0;
 }
 
-static const struct sc2336_reg_s *sc2336_get_mode_table(const char *mode_name)
+static const struct sc2336_reg_s *
+sc2336_get_mode_table(const char *mode_name)
 {
   if (strcmp(mode_name, "1080p25") == 0)
     {
       return g_sc2336_1080p_25fps;
     }
-  else if (strcmp(mode_name, "1080p") == 0 || strcmp(mode_name, "1080p30") == 0)
+  else if (strcmp(mode_name, "1080p") == 0 ||
+           strcmp(mode_name, "1080p30") == 0)
     {
       return g_sc2336_1080p_30fps;
     }
+
   return g_sc2336_720p_30fps;
 }
 
@@ -273,8 +276,16 @@ static int sc2336_verify_key_registers(int fd, const char *mode_name)
   uint8_t ana2_val = 0;
   uint8_t vtsh_val = 0;
   uint8_t vtsl_val = 0;
+  uint8_t expected_ana1 = 0x53;
+  uint8_t expected_ana2 = 0x53;
   uint16_t vts = 0;
   int ret;
+
+  if (strcmp(mode_name, "1080p25") == 0)
+    {
+      expected_ana1 = 0x20;
+      expected_ana2 = 0x27;
+    }
 
   ret = sc2336_read_retry(fd, SC2336_REG_CLK_CTRL, &clk_val);
   if (ret < 0) return ret;
@@ -295,11 +306,14 @@ static int sc2336_verify_key_registers(int fd, const char *mode_name)
 
   printf("SC2336 readback verification (%s):\n", mode_name);
   printf("  CLK_CTRL (0x3106)   = 0x%02x (expected 0x05)\n", clk_val);
-  printf("  ANA_INIT_1 (0x36e9) = 0x%02x (expected 0x80)\n", ana1_val);
-  printf("  ANA_INIT_2 (0x37f9) = 0x%02x (expected 0x80)\n", ana2_val);
+  printf("  ANA_INIT_1 (0x36e9) = 0x%02x (expected 0x%02x)\n",
+         ana1_val, expected_ana1);
+  printf("  ANA_INIT_2 (0x37f9) = 0x%02x (expected 0x%02x)\n",
+         ana2_val, expected_ana2);
   printf("  VTS      (0x320e/f) = %u\n", vts);
 
-  if (clk_val != 0x05 || ana1_val != 0x80 || ana2_val != 0x80)
+  if (clk_val != 0x05 || ana1_val != expected_ana1 ||
+      ana2_val != expected_ana2)
     {
       fprintf(stderr, "SC2336 FAIL register verification mismatch\n");
       return -EIO;
@@ -349,7 +363,8 @@ static int sc2336_run_full_test(int fd, const char *mode_name)
   printf("[Step 1/6] Probing Chip ID...\n");
   ret = sc2336_probe_id(fd, &chip_id);
   if (ret < 0) return ret;
-  printf("  -> Chip ID: 0x%04x (MATCH 0x%04x)\n", chip_id, SC2336_EXPECTED_ID);
+  printf("  -> Chip ID: 0x%04x (MATCH 0x%04x)\n",
+         chip_id, SC2336_EXPECTED_ID);
 
   /* Step 2: Software Reset */
 
@@ -466,7 +481,8 @@ static int sc2336_csi_init_mode(const char *mode_name)
       cfg.lane_bit_rate_mbps = 480;
     }
 
-  printf("Initializing ESP32-P4 MIPI CSI controller (%s: %ux%u, %d lanes, %d Mbps)...\n",
+  printf("Initializing ESP32-P4 MIPI CSI controller"
+         " (%s: %ux%u, %d lanes, %d Mbps)...\n",
          mode_name, cfg.frame_width, cfg.frame_height,
          cfg.lanes_num, cfg.lane_bit_rate_mbps);
 
@@ -493,6 +509,7 @@ static int sc2336_run_csi_smoke_test(int fd, const char *mode_name)
       fprintf(stderr, "CSI init FAIL: %d\n", ret);
       return ret;
     }
+
   printf("  -> CSI Controller initialized PASS\n");
 
   /* Step 2: Query Standby D-PHY status */
@@ -533,12 +550,14 @@ static int sc2336_run_csi_smoke_test(int fd, const char *mode_name)
 
   printf("  Active state : clk_stop=%d, clk_hs=%d, data_stop=0x%02x\n",
          st.clk_stopstate, st.clk_activehs, st.data_stopstate);
-  printf("  Interrupts   : main=0x%08" PRIx32 ", phy_fatal=0x%08" PRIx32 ", pkt_fatal=0x%08" PRIx32 "\n",
+  printf("  Interrupts   : main=0x%08" PRIx32
+         ", phy_fatal=0x%08" PRIx32 ", pkt_fatal=0x%08" PRIx32 "\n",
          st.int_st_main, st.int_st_phy_fatal, st.int_st_pkt_fatal);
 
   if (st.int_st_phy_fatal != 0)
     {
-      fprintf(stderr, "CSI FAIL: PHY Fatal Error detected (0x%08" PRIx32 ")\n",
+      fprintf(stderr,
+              "CSI FAIL: PHY Fatal Error detected (0x%08" PRIx32 ")\n",
               st.int_st_phy_fatal);
       sc2336_set_stream(fd, false);
       return -EIO;
@@ -569,24 +588,239 @@ static int sc2336_run_csi_smoke_test(int fd, const char *mode_name)
   printf("========================================\n");
   return 0;
 }
+
+static int sc2336_run_dma_capture(int fd, const char *mode_name,
+                                  uint32_t frame_limit,
+                                  uint32_t duration_seconds)
+{
+  struct esp32p4_csi_capture_config_s dma_cfg;
+  struct esp32p4_csi_dma_stats_s stats;
+  struct esp32p4_csi_frame_s frame;
+  const struct sc2336_reg_s *table;
+  struct timeval started;
+  struct timeval now;
+  uint32_t first_crc = 0;
+  uint32_t crc_changes = 0;
+  uint32_t captured = 0;
+  bool csi_ready = false;
+  bool dma_ready = false;
+  bool streaming = false;
+  int ret;
+
+  printf("========================================\n");
+  printf(" ESP32-P4 CSI DW-GDMA PSRAM Capture Test\n");
+  printf(" Mode=%s frames=%" PRIu32 " duration=%" PRIu32 "s\n",
+         mode_name, frame_limit, duration_seconds);
+  printf("========================================\n");
+
+  ret = sc2336_csi_init_mode(mode_name);
+  if (ret < 0)
+    {
+      printf("CSI DMA FAIL: CSI init ret=%d\n", ret);
+      return ret;
+    }
+
+  csi_ready = true;
+  ret = sc2336_software_reset(fd);
+  if (ret < 0)
+    {
+      goto out;
+    }
+
+  table = sc2336_get_mode_table(mode_name);
+  ret = sc2336_init_table(fd, table, mode_name);
+  if (ret < 0)
+    {
+      goto out;
+    }
+
+  ret = sc2336_verify_key_registers(fd, mode_name);
+  if (ret < 0)
+    {
+      goto out;
+    }
+
+  memset(&dma_cfg, 0, sizeof(dma_cfg));
+  dma_cfg.frame_width = 1280;
+  dma_cfg.frame_height = 720;
+  dma_cfg.bpp = 10;
+  dma_cfg.dma_chan = 0;
+  dma_cfg.buf_count = 2;
+  dma_cfg.mem_type = ESP32P4_CSI_BUF_PSRAM;
+  dma_cfg.enable_guard = true;
+
+  if (strcmp(mode_name, "1080p") == 0 ||
+      strcmp(mode_name, "1080p30") == 0 ||
+      strcmp(mode_name, "1080p25") == 0)
+    {
+      dma_cfg.frame_width = 1920;
+      dma_cfg.frame_height = 1080;
+    }
+
+  ret = esp32p4_csi_dma_init(&dma_cfg);
+  if (ret < 0)
+    {
+      printf("CSI DMA FAIL: dma_init ret=%d\n", ret);
+      goto out;
+    }
+
+  dma_ready = true;
+  esp32p4_csi_reset_dma_stats();
+  gettimeofday(&started, NULL);
+
+  while (frame_limit == 0 || captured < frame_limit)
+    {
+      if (duration_seconds != 0)
+        {
+          gettimeofday(&now, NULL);
+          if ((uint32_t)(now.tv_sec - started.tv_sec) >= duration_seconds)
+            {
+              break;
+            }
+        }
+
+      ret = esp32p4_csi_dma_start();
+      if (ret < 0)
+        {
+          printf("CSI DMA FAIL: arm frame=%" PRIu32 " ret=%d\n",
+                 captured + 1, ret);
+          goto out;
+        }
+
+      ret = sc2336_set_stream(fd, true);
+      if (ret < 0)
+        {
+          esp32p4_csi_dma_stop();
+          goto out;
+        }
+
+      streaming = true;
+      memset(&frame, 0, sizeof(frame));
+      ret = esp32p4_csi_capture_frame(&frame, 1000);
+
+      sc2336_set_stream(fd, false);
+      streaming = false;
+      usleep(5000);
+
+      if (ret < 0)
+        {
+          printf("CSI DMA FAIL: capture frame=%" PRIu32 " ret=%d\n",
+                 captured + 1, ret);
+          esp32p4_csi_dump_dma();
+          goto out;
+        }
+
+      captured++;
+      if (captured == 1)
+        {
+          first_crc = frame.crc32;
+        }
+      else if (frame.crc32 != first_crc)
+        {
+          crc_changes++;
+        }
+
+      if (frame.bytes_received != frame.buflen || !frame.guard_valid)
+        {
+          printf("CSI DMA FAIL: frame=%" PRIu32
+                 " bytes=%zu/%zu guard=%d\n",
+                 captured, frame.bytes_received, frame.buflen,
+                 frame.guard_valid);
+          ret = -EIO;
+          goto out;
+        }
+
+      if (captured == 1 || (captured % 100) == 0)
+        {
+          printf("CSI FRAME PASS seq=%" PRIu32 " addr=%p bytes=%zu"
+                 " crc32=%08" PRIx32 " guard=PASS crc_changes=%" PRIu32
+                 "\n",
+                 frame.seq_no, frame.buffer, frame.bytes_received,
+                 frame.crc32, crc_changes);
+          fflush(stdout);
+        }
+    }
+
+  ret = esp32p4_csi_get_dma_stats(&stats);
+  if (ret < 0)
+    {
+      goto out;
+    }
+
+  printf("CSI DMA SUMMARY frames=%" PRIu32 " crc_changes=%" PRIu32
+         " timeouts=%" PRIu32 " dec=%" PRIu32 " slv=%" PRIu32
+         " lli=%" PRIu32 " guard=%" PRIu32 "\n",
+         stats.frames_captured, crc_changes, stats.dma_timeouts,
+         stats.dma_err_dec, stats.dma_err_slv, stats.dma_err_lli,
+         stats.dma_guard_errors);
+
+  if (stats.frames_captured != captured || captured == 0 ||
+      (captured > 1 && crc_changes == 0) ||
+      stats.dma_timeouts != 0 || stats.dma_err_dec != 0 ||
+      stats.dma_err_slv != 0 || stats.dma_err_lli != 0 ||
+      stats.dma_guard_errors != 0)
+    {
+      printf("CSI DMA STABILITY FAIL\n");
+      ret = -EIO;
+    }
+  else
+    {
+      printf("CSI DMA STABILITY PASS\n");
+      ret = 0;
+    }
+
+out:
+  if (streaming)
+    {
+      sc2336_set_stream(fd, false);
+    }
+
+  if (dma_ready)
+    {
+      esp32p4_csi_dma_stop();
+      esp32p4_csi_dma_deinit();
+    }
+
+  if (csi_ready)
+    {
+      esp32p4_mipi_csi_deinit();
+    }
+
+  return ret;
+}
 #endif
 
 static void show_usage(const char *progname)
 {
   printf("Usage: %s [command] [args]\n", progname);
   printf("Commands:\n");
-  printf("  probe                      (Default) Probe sensor chip ID (0xcb3a)\n");
-  printf("  reset                      Perform soft reset and verify ID recovery\n");
-  printf("  init [720p|1080p|1080p25]  Write mode register table and verify\n");
-  printf("  stream-on                  Enable streaming mode (0x0100=0x01)\n");
-  printf("  stream-off                 Disable streaming mode (0x0100=0x00)\n");
-  printf("  test [720p|1080p|1080p25]  Execute full ID -> Reset -> Init -> StreamOn/Off test\n");
-  printf("  cycle <N> [mode]           Run N stream-on/off transition cycles (default N=10, mode=720p)\n");
+  printf("  probe                      (Default) Probe sensor chip ID"
+         " (0xcb3a)\n");
+  printf("  reset                      Perform soft reset and verify ID"
+         " recovery\n");
+  printf("  init [720p|1080p|1080p25]  Write mode register table and"
+         " verify\n");
+  printf("  stream-on                  Enable streaming mode"
+         " (0x0100=0x01)\n");
+  printf("  stream-off                 Disable streaming mode"
+         " (0x0100=0x00)\n");
+  printf("  test [720p|1080p|1080p25]  Execute full ID -> Reset ->"
+         " Init -> StreamOn/Off test\n");
+  printf("  cycle <N> [mode]           Run N stream-on/off transition"
+         " cycles (default N=10, mode=720p)\n");
 #ifdef CONFIG_ESP32P4_MIPI_CSI
-  printf("  csi-init [720p|1080p]      Initialize ESP32-P4 MIPI CSI Host/D-PHY\n");
-  printf("  csi-status                 Display ESP32-P4 MIPI CSI/D-PHY status\n");
-  printf("  csi-test [720p|1080p]      Run integrated Sensor + CSI D-PHY link smoke test\n");
-  printf("  csi-deinit                 De-initialize and gate CSI controller\n");
+  printf("  csi-init [720p|1080p]      Initialize ESP32-P4 MIPI CSI"
+         " Host/D-PHY\n");
+  printf("  csi-status                 Display ESP32-P4 MIPI CSI/D-PHY"
+         " status\n");
+  printf("  csi-test [720p|1080p]      Run integrated Sensor + CSI"
+         " D-PHY link smoke test\n");
+  printf("  dma-capture <N> [mode]      Capture N guarded RAW10 frames"
+         " to PSRAM\n");
+  printf("  dma-stability <sec> [mode]  Run guarded DMA capture"
+         " stability test\n");
+  printf("  csi-deinit                 De-initialize and gate CSI"
+         " controller\n");
 #endif
 }
 
@@ -630,6 +864,7 @@ int main(int argc, char *argv[])
         {
           esp32p4_mipi_csi_dump();
         }
+
       return (ret == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
     }
   else if (strcmp(cmd, "csi-deinit") == 0)
@@ -717,6 +952,46 @@ int main(int argc, char *argv[])
         }
 
       ret = sc2336_run_csi_smoke_test(fd, mode);
+    }
+  else if (strcmp(cmd, "dma-capture") == 0)
+    {
+      uint32_t frames = 1;
+
+      if (argc > 2)
+        {
+          frames = (uint32_t)strtoul(argv[2], NULL, 0);
+          if (frames == 0)
+            {
+              frames = 1;
+            }
+        }
+
+      if (argc > 3)
+        {
+          mode = argv[3];
+        }
+
+      ret = sc2336_run_dma_capture(fd, mode, frames, 0);
+    }
+  else if (strcmp(cmd, "dma-stability") == 0)
+    {
+      uint32_t seconds = 300;
+
+      if (argc > 2)
+        {
+          seconds = (uint32_t)strtoul(argv[2], NULL, 0);
+          if (seconds == 0)
+            {
+              seconds = 300;
+            }
+        }
+
+      if (argc > 3)
+        {
+          mode = argv[3];
+        }
+
+      ret = sc2336_run_dma_capture(fd, mode, 0, seconds);
     }
 #endif
   else
