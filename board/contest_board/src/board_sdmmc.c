@@ -40,7 +40,8 @@
 #include <nuttx/sdio.h>
 #include <nuttx/mmcsd.h>
 
-#include "esp32p4_sdmmc.h"
+#include <arch/chip/esp32p4_sdmmc.h>
+
 #include "board_sdmmc.h"
 
 /****************************************************************************
@@ -81,7 +82,7 @@ int board_sdmmc_initialize(void)
 
   /* 1. Initialize ESP32-P4 SDMMC Host Controller on Slot 0 */
 
-  sdio = esp32p4_sdmmc_init(CONTEST_SDMMC_SLOT);
+  sdio = esp32p4_sdmmc_sdio_initialize(CONTEST_SDMMC_SLOT);
   if (sdio == NULL)
     {
       mcerr("ERROR: Failed to initialize SDMMC Slot %d\n",

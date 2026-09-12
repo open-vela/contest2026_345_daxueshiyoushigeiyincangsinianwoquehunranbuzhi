@@ -8,6 +8,23 @@ config CONTEST2026_345_BOARD_TAG
 	string
 	default "esp32p4x-function-ev-board"
 
+config CONTEST2026_345_C6_WIFI
+	bool "ESP32-C6 Hosted Wi-Fi over SDIO"
+	depends on ESP32P4_SDMMC
+	default n
+	---help---
+		Enable the on-board ESP32-C6-MINI-1 wireless co-processor on
+		SDMMC slot 1.  GPIO54 controls C6_EN and GPIO6 is reserved for
+		C6_WAKEUP.  The SDIO bus uses GPIO14 through GPIO19.
+
+config CONTEST2026_345_C6_WIFI_AUTOINIT
+	bool "Probe ESP32-C6 during board initialization"
+	depends on CONTEST2026_345_C6_WIFI
+	default n
+	---help---
+		Run the SDIO link probe before NSH starts.  Keep this disabled while
+		bringing up the transport so a failed probe cannot hide the console.
+
 config ESPRESSIF_SPIFLASH_AUTO_BRINGUP
 	bool "Automatic mount of SPI Flash MTD"
 	depends on ESPRESSIF_MTD

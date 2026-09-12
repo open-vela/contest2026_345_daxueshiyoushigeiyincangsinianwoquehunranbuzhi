@@ -1,0 +1,33 @@
+ESP32-P4 / ESP32-C6 Wi-Fi acceptance (2026-09-12)
+==================================================
+
+Hardware:
+  ESP32-P4 rev v3.2
+  ESP32-C6FH4 rev v0.2
+  ESP-Hosted-MCU 1.4.7
+  P4 console/flash: COM3
+  C6 diagnostic UART: COM4
+  Test AP: temporary 2.4 GHz WPA2 hotspot (password redacted)
+
+Final command:
+  c6_wifi connect 12345 <redacted>
+
+Representative P4 result:
+  ESP32-C6 SDIO CIS PASS: CCCR=0x32 vendor=0x0092 device=0x6666
+  ESP32-C6 SDIO DMA PASS: CMD53 scratch0=0x00000000
+  ESP32-C6 Hosted PASS: init event len=12 frame=26 bytes
+  ESP32-C6 Wi-Fi connected: SSID=12345
+
+Representative C6 result:
+  wifi:state: init -> auth
+  wifi:state: auth -> assoc
+  slave_ctrl: Sta mode connected
+
+Stability:
+  Final retry configuration: 3/3 automatic cold-reset association cycles PASS.
+  One 60-second hold run PASS. At 10-second intervals through 60 seconds,
+  HINF reported ioe1=1 and iordy1=1 with no disconnect event.
+
+Scope:
+  PASS covers SDIO/CMD53 DMA, ESP-Hosted control RPC, and Wi-Fi association.
+  NuttX netdev, DHCP, IPv4, ping, and WLAN packet data plane are not included.
