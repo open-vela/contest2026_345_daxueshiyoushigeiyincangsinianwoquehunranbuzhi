@@ -10,6 +10,7 @@
 
 #include <nuttx/config.h>
 #include <stdint.h>
+#include <syslog.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/fs/fs.h>
@@ -20,6 +21,7 @@
 #include "board_audio.h"
 #include "board_touch.h"
 #include "board_sdmmc.h"
+#include "board_c6_wifi.h"
 
 /****************************************************************************
  * Public Functions
@@ -85,7 +87,15 @@ int board_app_initialize(uintptr_t arg)
     }
 #endif
 
-#ifdef CONFIG_ESP32P4_SDMMC
+#ifdef CONFIG_CONTEST2026_345_C6_WIFI_AUTOINIT
+  ret = board_c6_wifi_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: ESP32-C6 SDIO initialization failed: %d\n",
+             ret);
+    }
+#elif defined(CONFIG_ESP32P4_SDMMC) && \
+      !defined(CONFIG_CONTEST2026_345_C6_WIFI)
   ret = board_sdmmc_initialize();
   if (ret < 0)
     {

@@ -32,4 +32,8 @@ ifeq ($(CONFIG_ESP32P4_SDMMC),y)
 CSRCS += board_sdmmc.c
 endif
 
+ifeq ($(CONFIG_CONTEST2026_345_C6_WIFI),y)
+CSRCS += board_c6_wifi.c
+endif
+
 include $(TOPDIR)/boards/Board.mk

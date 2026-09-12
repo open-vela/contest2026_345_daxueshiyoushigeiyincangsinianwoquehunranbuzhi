@@ -1,0 +1,11 @@
+#
+# Contest 2026 team 345 ESP32-C6 Wi-Fi link utility
+#
+
+config LVX_USE_DEMO_CONTEST2026_345_C6_WIFI
+	bool "Contest 2026 team 345 ESP32-C6 Wi-Fi link utility"
+	default n
+	depends on CONTEST2026_345_C6_WIFI
+	---help---
+		Enable the c6_wifi command used to probe the on-board ESP32-C6
+		SDIO link without blocking NSH during board initialization.
