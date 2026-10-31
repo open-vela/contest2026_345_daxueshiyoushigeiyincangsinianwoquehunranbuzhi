@@ -23,23 +23,31 @@
 #define VF_UI_SCREEN_W        1024
 #define VF_UI_SCREEN_H        600
 
-/* Top title/status band, and bottom single-hint band. */
+/* Split layout: the live camera owns the whole top block; the lower block is
+ * a solid information area so text never sits on top of the video. */
+#define VF_UI_CAMERA_X0       0
+#define VF_UI_CAMERA_X1       600
+#define VF_UI_CAMERA_Y0       0
+#define VF_UI_CAMERA_Y1       600
+
+/* Legacy title strip, kept only for the full-screen advice page. */
 #define VF_UI_STATUS_X0       0
 #define VF_UI_STATUS_X1       56
-#define VF_UI_HINT_X0         912
+#define VF_UI_HINT_X0         900
 #define VF_UI_HINT_X1         1024
 
-/* Reserve the whole lower-middle area for preview plus main count. */
-#define VF_UI_PREVIEW_X0      56
-#define VF_UI_PREVIEW_X1      560
-#define VF_UI_COUNT_X0        560
-#define VF_UI_COUNT_X1        884
-#define VF_UI_COUNT_Y0        120
-#define VF_UI_COUNT_Y1        480
+/* Main count zone fills the lower information block edge to edge. */
+#define VF_UI_COUNT_X0        600
+#define VF_UI_COUNT_X1        900
+#define VF_UI_COUNT_Y0        0
+#define VF_UI_COUNT_Y1        600
 
-/* Live camera band for the training page (square, vertically centered). */
-#define VF_UI_PREVIEW_Y0      48
-#define VF_UI_PREVIEW_Y1      552
+/* Legacy aliases for the camera block (kept so the probe loop and the
+ * skeleton overlay agree on one rectangle). */
+#define VF_UI_PREVIEW_X0      VF_UI_CAMERA_X0
+#define VF_UI_PREVIEW_X1      VF_UI_CAMERA_X1
+#define VF_UI_PREVIEW_Y0      VF_UI_CAMERA_Y0
+#define VF_UI_PREVIEW_Y1      VF_UI_CAMERA_Y1
 
 /* Palette: dark neutral background, one accent, warn/error as exceptions. */
 
@@ -66,11 +74,11 @@
 #define VF_UI_HINT_SCALE      3
 
 /* Fixed count zone; scale depends on digit count, the zone never moves. */
-#define VF_UI_COUNT_SCALE_1   12
-#define VF_UI_COUNT_SCALE_2   11
-#define VF_UI_COUNT_SCALE_3   10
-#define VF_UI_COUNTDOWN_SCALE 12
-#define VF_UI_SUMMARY_SCALE   12
+#define VF_UI_COUNT_SCALE_1   9
+#define VF_UI_COUNT_SCALE_2   8
+#define VF_UI_COUNT_SCALE_3   7
+#define VF_UI_COUNTDOWN_SCALE 9
+#define VF_UI_SUMMARY_SCALE   9
 
 /* Spacing scale */
 #define VF_UI_GAP_XS          4

@@ -34,7 +34,7 @@ static const velafit_hint_desc_t g_hint_table[] =
 {
   {
     VELAFIT_HINT_ADVICE_FAILED,
-    "ADVICE UNAVAILABLE - RETRY",
+    "建议获取失败 请重试",
     VELAFIT_HINT_PRIO_BLOCKING,
     "cloud advice request returned an error",
     "a retry succeeds or the user returns to the summary",
@@ -43,7 +43,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_TTS_FAILED,
-    "VOICE UNAVAILABLE - READ TEXT",
+    "语音失败 请看文字",
     VELAFIT_HINT_PRIO_BLOCKING,
     "speech playback failed while the advice body is readable",
     "a later cue plays or the user leaves the advice page",
@@ -52,7 +52,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_SUMMARY,
-    "START AGAIN WHEN READY",
+    "准备好后开始下一组",
     VELAFIT_HINT_PRIO_BLOCKING,
     "session reached FINISHED, including an early stop",
     "the next set starts or the user leaves the summary",
@@ -61,7 +61,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_STEP_IN,
-    "STEP INTO FRAME",
+    "请站入画面",
     VELAFIT_HINT_PRIO_UNAVAILABLE,
     "no usable pose is located during positioning",
     "a pose that passes body check appears",
@@ -70,7 +70,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_POSE_UNAVAILABLE,
-    "POSE UNAVAILABLE - REPOSITION",
+    "姿态丢失 请调整位置",
     VELAFIT_HINT_PRIO_UNAVAILABLE,
     "pose admission failed during the set (cause unproven)",
     "a frame passes counting admission",
@@ -79,7 +79,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_FULL_BODY,
-    "SHOULDERS TO ANKLES IN FRAME",
+    "请让肩到脚完整入镜",
     VELAFIT_HINT_PRIO_UNAVAILABLE,
     "body check reports not fully visible from boundary evidence",
     "every required point is inside the frame margin",
@@ -88,7 +88,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_MOVE_BACK,
-    "MOVE BACK A LITTLE",
+    "请后退一点",
     VELAFIT_HINT_PRIO_UNAVAILABLE,
     "body check reports too close from measured body height",
     "body height falls inside the accepted range",
@@ -97,7 +97,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_MOVE_CLOSER,
-    "MOVE CLOSER A LITTLE",
+    "请靠近一点",
     VELAFIT_HINT_PRIO_UNAVAILABLE,
     "body check reports too far from measured body height",
     "body height falls inside the accepted range",
@@ -106,7 +106,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_ORIENTATION,
-    "FACE THE CAMERA - STAND TALL",
+    "面向镜头 站直身体",
     VELAFIT_HINT_PRIO_UNAVAILABLE,
     "body check orientation gate reports rotated or invalid",
     "an upright orientation is confirmed",
@@ -115,7 +115,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_HOLD_STILL,
-    "STAND STILL",
+    "请保持静止",
     VELAFIT_HINT_PRIO_UNAVAILABLE,
     "body check reports stabilizing",
     "stable frames reach the configured threshold",
@@ -124,7 +124,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_STAND_READY,
-    "STAND READY",
+    "准备就绪",
     VELAFIT_HINT_PRIO_GUIDE,
     "body check reports ready",
     "the session leaves positioning",
@@ -133,7 +133,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_STAND_TALL,
-    "STAND TALL HOLD STILL",
+    "站直并保持静止",
     VELAFIT_HINT_PRIO_GUIDE,
     "session READY hold",
     "the READY hold elapses and countdown starts",
@@ -142,7 +142,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_GET_SET,
-    "GET SET",
+    "各就位",
     VELAFIT_HINT_PRIO_GUIDE,
     "session COUNTDOWN",
     "countdown reaches zero",
@@ -151,7 +151,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_GO,
-    "GO GO GO",
+    "开始蹲起",
     VELAFIT_HINT_PRIO_GUIDE,
     "first window of the running phase",
     "the running banner window closes",
@@ -160,7 +160,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_KEEP_RISING,
-    "KEEP STANDING UP",
+    "请继续起身",
     VELAFIT_HINT_PRIO_GUIDE,
     "squat FSM reports the ascending phase",
     "the ascending phase ends",
@@ -169,7 +169,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_REP_DONE,
-    "REP DONE",
+    "完成一次",
     VELAFIT_HINT_PRIO_COMPLETE,
     "a new repetition was counted; consumed once per increment",
     "the feedback validity window ends",
@@ -178,7 +178,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_ENCOURAGE,
-    "KEEP GOING",
+    "继续保持",
     VELAFIT_HINT_PRIO_ENCOURAGE,
     "pose admitted and no stronger hint applies",
     "any higher-priority condition appears",
@@ -187,7 +187,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_IDLE,
-    "READY WHEN YOU ARE",
+    "准备好了就开始",
     VELAFIT_HINT_PRIO_ENCOURAGE,
     "no active session",
     "a wake event starts positioning",
@@ -196,7 +196,7 @@ static const velafit_hint_desc_t g_hint_table[] =
   },
   {
     VELAFIT_HINT_LIGHT_DARK,
-    "LIGHT IS LOW - ADJUST LIGHTING",
+    "光线不足 请调亮",
     VELAFIT_HINT_PRIO_UNAVAILABLE,
     "layout test only: no verified brightness signal exists",
     "never auto-selected in real mode",

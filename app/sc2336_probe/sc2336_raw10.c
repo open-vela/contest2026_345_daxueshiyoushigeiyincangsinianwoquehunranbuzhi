@@ -82,6 +82,26 @@ static void demosaic_bggr(const uint8_t *raw, uint16_t width,
     }
 }
 
+/* Preview path only: the destination already renders at half resolution (each
+ * output pixel covers a 2x2 sensor cell), so read that cell directly instead
+ * of running a full 3x3 bilinear demosaic. Four RAW reads instead of nine
+ * roughly halves the per-pixel cost; colors are the same 2x2 BGGR cell. */
+
+static void demosaic_bggr_cell(const uint8_t *raw, uint16_t width,
+                               uint16_t x, uint16_t y, uint8_t *rgb)
+{
+  uint16_t cx = x & ~1u;
+  uint16_t cy = y & ~1u;
+  uint8_t b = raw8_at(raw, width, cx, cy);
+  uint8_t g1 = raw8_at(raw, width, cx + 1, cy);
+  uint8_t g2 = raw8_at(raw, width, cx, cy + 1);
+  uint8_t r = raw8_at(raw, width, cx + 1, cy + 1);
+
+  rgb[0] = r;
+  rgb[1] = average2(g1, g2);
+  rgb[2] = b;
+}
+
 static uint32_t crc32_le(const uint8_t *data, size_t len)
 {
   uint32_t crc = UINT32_MAX;
@@ -176,11 +196,32 @@ static void portrait_sample(const uint8_t *raw, uint16_t raw_w,
   demosaic_bggr(raw, raw_w, sx, sy, rgb);
 }
 
-int sc2336_raw10_bggr_preview_rgb565(const uint8_t *raw, size_t raw_len,
-                                     uint16_t raw_w, uint16_t raw_h,
-                                     uint16_t *fb, size_t fb_len,
-                                     uint16_t fb_w, uint16_t fb_h,
-                                     uint16_t fb_stride)
+static void portrait_sample_cell(const uint8_t *raw, uint16_t raw_w,
+                                 uint16_t raw_h, uint16_t x, uint16_t y,
+                                 uint8_t *rgb)
+{
+  uint16_t sx = raw_w - 1 - y;
+  uint16_t sy = x;
+
+  if (sx == 0) sx = 1;
+  if (sx >= raw_w - 1) sx = raw_w - 2;
+  if (sy == 0) sy = 1;
+  if (sy >= raw_h - 1) sy = raw_h - 2;
+  demosaic_bggr_cell(raw, raw_w, sx, sy, rgb);
+}
+
+/* Convert one captured frame into a rectangle of the framebuffer.  The crop
+ * is computed for the destination rectangle, so the same call that fills the
+ * whole screen also fills a product band with the identical cover mapping the
+ * keypoint overlay uses (sc2336_model_to_display takes the same w/h). */
+
+int sc2336_raw10_bggr_preview_rgb565_rect(const uint8_t *raw, size_t raw_len,
+                                          uint16_t raw_w, uint16_t raw_h,
+                                          uint16_t *fb, size_t fb_len,
+                                          uint16_t fb_w, uint16_t fb_h,
+                                          uint16_t fb_stride,
+                                          uint16_t dst_x, uint16_t dst_y,
+                                          uint16_t dst_w, uint16_t dst_h)
 {
   uint32_t sum_r = 0;
   uint32_t sum_g = 0;
@@ -210,6 +251,9 @@ int sc2336_raw10_bggr_preview_rgb565(const uint8_t *raw, size_t raw_len,
   if (raw == NULL || fb == NULL || raw_w < 4 || raw_h < 3 ||
       (raw_w & 3) != 0 || fb_w < 2 || fb_h < 2 ||
       (fb_w & 1) != 0 || (fb_h & 1) != 0 || fb_stride < fb_w ||
+      (dst_w & 1) != 0 || (dst_h & 1) != 0 || dst_w < 2 || dst_h < 2 ||
+      (uint32_t)dst_x + dst_w > fb_w ||
+      (uint32_t)dst_y + dst_h > fb_h ||
       raw_len < (size_t)raw_w * raw_h * 5 / 4 ||
       fb_len < (size_t)fb_stride * fb_h * sizeof(uint16_t))
     {
@@ -217,13 +261,13 @@ int sc2336_raw10_bggr_preview_rgb565(const uint8_t *raw, size_t raw_len,
     }
 
   /* Render to every 2x2 display block. Crop in rotated source coordinates:
-   * native 1024x600 uses 720x421 of the 720x1280 rotated view. On the
-   * physically upright panel this removes left/right, not head/feet.
+   * the full 1024x600 screen uses 720x421 of the 720x1280 rotated view. On
+   * the physically upright panel this removes left/right, not head/feet.
    */
 
-  preview_w = fb_w / 2;
-  preview_h = fb_h / 2;
-  struct sc2336_rect crop = sc2336_cover(view_w, view_h, fb_w, fb_h);
+  preview_w = dst_w / 2;
+  preview_h = dst_h / 2;
+  struct sc2336_rect crop = sc2336_cover(view_w, view_h, dst_w, dst_h);
   crop_w = crop.w;
   crop_h = crop.h;
 
@@ -272,7 +316,12 @@ int sc2336_raw10_bggr_preview_rgb565(const uint8_t *raw, size_t raw_len,
       gamma_lut[value] = sqrt_u16((uint16_t)(value * 255));
     }
 
-  memset(fb, 0, (size_t)fb_stride * fb_h * sizeof(uint16_t));
+  for (uint16_t row = 0; row < dst_h; row++)
+    {
+      memset(fb + (size_t)(dst_y + row) * fb_stride + dst_x, 0,
+             (size_t)dst_w * sizeof(uint16_t));
+    }
+
   for (uint16_t value = 0; value < 256; value++)
     {
       red565[value] = (correct_channel(value, gain_r, gamma_lut) & 0xf8) << 8;
@@ -284,7 +333,7 @@ int sc2336_raw10_bggr_preview_rgb565(const uint8_t *raw, size_t raw_len,
     {
       uint16_t sy = offset_y +
         (uint16_t)(((uint32_t)(2 * dy + 1) * crop_h) / (2 * preview_h));
-      uint16_t *line0 = fb + (size_t)(dy * 2) * fb_stride;
+      uint16_t *line0 = fb + (size_t)(dst_y + dy * 2) * fb_stride + dst_x;
       uint16_t *line1 = line0 + fb_stride;
 
       if (sy == 0)
@@ -311,7 +360,7 @@ int sc2336_raw10_bggr_preview_rgb565(const uint8_t *raw, size_t raw_len,
               sx = view_w - 2;
             }
 
-          portrait_sample(raw, raw_w, raw_h, sx, sy, rgb);
+          portrait_sample_cell(raw, raw_w, raw_h, sx, sy, rgb);
           pixel = red565[rgb[0]] | green565[rgb[1]] | blue565[rgb[2]];
           line0[dx * 2] = pixel;
           line0[dx * 2 + 1] = pixel;
@@ -320,6 +369,17 @@ int sc2336_raw10_bggr_preview_rgb565(const uint8_t *raw, size_t raw_len,
         }
     }
   return 0;
+}
+
+int sc2336_raw10_bggr_preview_rgb565(const uint8_t *raw, size_t raw_len,
+                                     uint16_t raw_w, uint16_t raw_h,
+                                     uint16_t *fb, size_t fb_len,
+                                     uint16_t fb_w, uint16_t fb_h,
+                                     uint16_t fb_stride)
+{
+  return sc2336_raw10_bggr_preview_rgb565_rect(raw, raw_len, raw_w, raw_h,
+                                               fb, fb_len, fb_w, fb_h, fb_stride,
+                                               0, 0, fb_w, fb_h);
 }
 
 int sc2336_raw10_bggr_letterbox(const uint8_t *raw, size_t raw_len,

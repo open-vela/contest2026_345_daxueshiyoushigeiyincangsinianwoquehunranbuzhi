@@ -912,6 +912,38 @@ void velafit_render_sc2336_skeleton(velafit_canvas_t *canvas,
   velafit_render_skeleton(canvas,&display,quality_flags);
 }
 
+/* Same raw-frame mapping as velafit_render_sc2336_skeleton(), but the picture
+ * occupies only a sub-rectangle of the framebuffer.  The crop used here is
+ * sc2336_cover(720, 1280, w, h), exactly what
+ * sc2336_raw10_bggr_preview_rgb565_rect() uses for that rectangle, so bones
+ * land on the pixels they describe. */
+
+void velafit_render_sc2336_skeleton_rect(velafit_canvas_t *canvas,
+                                        const pose_frame_t *model_pose,
+                                        uint16_t raw_w, uint16_t raw_h,
+                                        uint16_t x0, uint16_t y0,
+                                        uint16_t w, uint16_t h,
+                                        uint32_t quality_flags)
+{
+  if (!canvas || !model_pose || !canvas->width || !canvas->height ||
+      canvas->width>UINT16_MAX || canvas->height>UINT16_MAX ||
+      w==0 || h==0) return;
+  pose_frame_t display=*model_pose;
+  display.valid=true;
+  for(unsigned i=0;i<VELAFIT_NUM_KEYPOINTS;i++)
+    {
+      float x,y;
+      if(!isfinite(display.kpts[i].score) ||
+         !sc2336_model_to_display(raw_w,raw_h,192,192,w,h,
+            display.kpts[i].x,display.kpts[i].y,&x,&y))
+        {display.kpts[i].x=display.kpts[i].y=0;display.kpts[i].score=0;}
+      else
+        {display.kpts[i].x=(x0+x)/canvas->width;
+         display.kpts[i].y=(y0+y)/canvas->height;}
+    }
+  velafit_render_skeleton(canvas,&display,quality_flags);
+}
+
 /* TinyPose consumes the 96x96 letterboxed image that the demo page shows
  * verbatim inside the preview band. Map model-normalized points through the
  * same CCW90 rotation used by sc2336_model_preview_blit_rect_ccw_rgb565():
