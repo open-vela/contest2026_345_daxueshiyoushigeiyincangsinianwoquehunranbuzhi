@@ -1323,6 +1323,11 @@ static int sc2336_show_result_page(
   return ret;
 }
 
+/* U6 animation switch. Default on; `ui_anim 0` freezes the heart at its rest
+ * size so the render cost of the pulse can be compared on the same firmware. */
+
+static bool ui_anim_enabled = true;
+
 static int sc2336_run_ui_page(const char *page, unsigned long reps,
                               int dump_scale, int crop_x, int crop_y,
                               int crop_w, int crop_h)
@@ -1331,6 +1336,9 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
   uint8_t *buffer;
   velafit_canvas_t canvas;
   velafit_ui_snapshot_t snap;
+  uint64_t render_start_us;
+  uint64_t render_total_us;
+  unsigned long sim_bpm_base = 0;
   int ret;
 
   buffer = malloc(1024 * 600 * 2);
@@ -1392,6 +1400,12 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
       snap.state_label = "LAYOUT";
       snap.hint = velafit_hint_text(id);
       snap.hint_tone = velafit_hint_tone(id);
+    }
+  else if (strcmp(page, "trainreal") == 0)
+    {
+      /* Same training layout with real provenance: no DEMO tag, no SIM HR. */
+      snap.page = VELAFIT_UI_PAGE_TRAINING;
+      snap.demo_data = false;
     }
   else if (strncmp(page, "train", 5) == 0)
     {
@@ -1509,7 +1523,51 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
 
   ui_shot_preview_stub(buffer);
   velafit_canvas_init(&canvas, buffer, 1024, 600, VELAFIT_PIXFMT_RGB565);
-  velafit_ui_render(&canvas, &snap);
+
+  /* U6: the UI demo page is the only producer of a simulated rate. It is
+   * labelled SIM HR / DEMO on the page and never reaches a session, summary,
+   * cloud request or statistic. The animation A/B run renders nine frames so
+   * both the pulse and the timing comparison are observable. */
+
+  if (snap.page == VELAFIT_UI_PAGE_TRAINING && snap.demo_data)
+    {
+      snap.heart_visible = true;
+      snap.heart_anim = ui_anim_enabled;
+      snap.sim_hr_valid = true;
+      sim_bpm_base = 66 + (reps % 7) * 2;
+      snap.sim_hr_bpm = sim_bpm_base;
+    }
+
+  if (snap.page == VELAFIT_UI_PAGE_TRAINING && !snap.demo_data)
+    {
+      /* Real-mode layout check: decorative heart, no simulated number. */
+      snap.heart_visible = true;
+      snap.heart_anim = ui_anim_enabled;
+    }
+
+  render_start_us = preview_time_us();
+  render_total_us = 0;
+  {
+    unsigned int frame;
+
+    for (frame = 0; frame <= 8; frame++)
+      {
+        snap.heart_phase = (uint8_t)(frame & 7);
+        if (snap.sim_hr_valid)
+          {
+            snap.sim_hr_bpm = sim_bpm_base + (frame & 3);
+          }
+
+        velafit_ui_render(&canvas, &snap);
+      }
+  }
+
+  render_total_us = preview_time_us() - render_start_us;
+  printf("UI_ANIM page=%s frames=9 anim=%d heart=%d sim_hr=%d bpm=%lu..%lu "
+         "avg_render_us=%llu\n",
+         page, (int)ui_anim_enabled, (int)snap.heart_visible,
+         (int)snap.sim_hr_valid, sim_bpm_base, sim_bpm_base + 3UL,
+         (unsigned long long)(render_total_us / 9));
 
   ret = ui_shot_present(buffer);
   printf("UI_SHOT page=%s reps=%lu scale=%d crop=%d,%d,%d,%d fb0=%s\n",
@@ -1595,6 +1653,24 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
       case VF_PAUSED:
       default:
         break;
+    }
+
+  /* U6: real training gets the decorative heartbeat only. The phase advances
+   * while a set is running and tracking holds, so the shape follows the
+   * exercise rhythm; no BPM value exists in this path and the simulated rate
+   * fields stay zero. */
+
+  if (snap.page == VELAFIT_UI_PAGE_TRAINING)
+    {
+      snap.heart_visible = true;
+      snap.heart_anim = true;
+
+      if (session->state == VF_RUNNING && tracking && session_start_ms != 0 &&
+          now_ms > session_start_ms)
+        {
+          snap.heart_phase = (uint8_t)(((now_ms - session_start_ms) /
+                                        VF_UI_ANIM_FAST_MS) & 7);
+        }
     }
 
   velafit_ui_render(canvas, &snap);
@@ -3582,9 +3658,12 @@ static void show_usage(const char *progname)
   printf("  hint_table               Dump hint trigger/recovery/validity table\n");
   printf("  ui_page <page> [reps] [dump] [x y w h] U1 fixed page shot: "
          "idle|countdown|"
-         "train0|train9|train10|train99|train100|trainlost|trainlong|"
+         "train0|train9|train10|train99|train100|trainreal|trainlost|"
+         "trainlong|"
          "summary|advice|advicecjk|advicelong|adviceempty|advicetts|"
          "advicefail|hintcrop|hintdark|hintmove\n");
+  printf("  ui_anim <0|1>            Enable/disable the U6 heartbeat animation"
+         " (render A/B timing)\n");
 #endif
   printf("  capture_prompt active|done LCD dataset collection state\n");
   printf("  csi-deinit                 De-initialize and gate CSI"
@@ -3872,6 +3951,17 @@ static int sc2336_dispatch(int argc, char *argv[])
         }
 
       ret = sc2336_run_dma_capture(fd, mode, 0, seconds);
+    }
+  else if (strcmp(cmd, "ui_anim") == 0)
+    {
+      /* U6 A/B switch; the value is read by the next ui_page render. */
+      if (argc > 2)
+        {
+          ui_anim_enabled = strtoul(argv[2], NULL, 0) != 0;
+        }
+
+      printf("[VELAFIT] UI_ANIM_SET enabled=%d\n", (int)ui_anim_enabled);
+      fflush(stdout);
     }
   else if (strcmp(cmd, "ui_page") == 0)
     {
