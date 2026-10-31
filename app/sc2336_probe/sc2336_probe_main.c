@@ -1604,6 +1604,18 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
       uint64_t t2;
       uint64_t t3;
 
+#ifdef CONFIG_VELAFIT_POSE_BACKEND_TFLM
+      /* Capture and inference must never be in flight together.  A slow
+       * first invoke used to outlive the mailbox wait and let the next CSI
+       * capture overlap the PSRAM-heavy inference.  Gate at the loop
+       * boundary: skip arming the channel until the worker is idle. */
+      if (worker != NULL && vf_pose_worker_wait(worker, 5000) != 0)
+        {
+          usleep(20000);
+          continue;
+        }
+#endif
+
       ret = esp32p4_csi_dma_start();
       if (ret < 0)
         {
@@ -1728,16 +1740,19 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
 #endif
             }
           ret=vf_pose_worker_publish(worker,model_rgb,t0/1000);
-          if(ret==-EBUSY) ++mailbox_busy;
-          else if(ret<0) goto out;
-          else
+          if(ret==-EBUSY)
             {
-              /* Serialize inference with capture.  On hardware the PSRAM
-               * heavy TinyPose invoke overlapped with CSI DMA and reset the
-               * board right after the first frame; waiting for this frame's
-               * result keeps exactly one owner of the bus at a time.
-               */
-              (void)vf_pose_worker_wait(worker,2000);
+              /* The worker is still finishing the previous frame.  Wait for
+               * it before republishing so capture and inference never overlap. */
+              ++mailbox_busy;
+              (void)vf_pose_worker_wait(worker,5000);
+              ret=vf_pose_worker_publish(worker,model_rgb,t0/1000);
+            }
+          if(ret<0 && ret!=-EBUSY && ret!=-ESTALE) goto out;
+          if(ret==0)
+            {
+              /* Keep exactly one owner of PSRAM and the CSI bus at a time. */
+              (void)vf_pose_worker_wait(worker,5000);
             }
           pose_frame_t pose;
           ret=vf_pose_worker_latest(worker,preview_time_us()/1000,1000,
