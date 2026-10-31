@@ -56,3 +56,45 @@ int sc2336_model_preview_blit_ccw_rgb565(const uint8_t *rgb96,
 
   return 0;
 }
+
+/* Blit the same RGB96 model image into an arbitrary framebuffer rectangle.
+ * The source is sampled in destination space so every target pixel is
+ * written exactly once (no gaps when the scale is non-integral). */
+
+int sc2336_model_preview_blit_rect_ccw_rgb565(const uint8_t *rgb96,
+                                              size_t rgb96_len,
+                                              uint16_t *framebuffer,
+                                              size_t framebuffer_len,
+                                              uint16_t width,
+                                              uint16_t height,
+                                              uint16_t stride,
+                                              uint16_t dst_x,
+                                              uint16_t dst_y,
+                                              uint16_t dst_w,
+                                              uint16_t dst_h)
+{
+  if (!rgb96 || !framebuffer || rgb96_len < MODEL_SIDE * MODEL_SIDE * 3 ||
+      stride < width || dst_w == 0 || dst_h == 0 ||
+      dst_x + dst_w > width || dst_y + dst_h > height ||
+      framebuffer_len < (size_t)stride * height * sizeof(uint16_t))
+    {
+      return -EINVAL;
+    }
+
+  for (uint16_t dy = 0; dy < dst_h; dy++)
+    {
+      const uint16_t rotated_y = (uint16_t)((uint32_t)dy * MODEL_SIDE / dst_h);
+      const uint16_t source_x = MODEL_SIDE - 1 - rotated_y;
+      uint16_t *row = &framebuffer[(size_t)(dst_y + dy) * stride + dst_x];
+
+      for (uint16_t dx = 0; dx < dst_w; dx++)
+        {
+          const uint16_t source_y =
+            (uint16_t)((uint32_t)dx * MODEL_SIDE / dst_w);
+          row[dx] = rgb565(&rgb96[
+            ((size_t)source_y * MODEL_SIDE + source_x) * 3]);
+        }
+    }
+
+  return 0;
+}
