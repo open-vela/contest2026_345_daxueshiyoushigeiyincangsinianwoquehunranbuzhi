@@ -42,6 +42,8 @@ typedef struct
   uint32_t target;
   uint32_t good_reps;
   bool good_valid;
+  uint32_t warn_reps;
+  bool warn_valid;
   uint32_t elapsed_sec;
   bool elapsed_valid;
   bool countdown;

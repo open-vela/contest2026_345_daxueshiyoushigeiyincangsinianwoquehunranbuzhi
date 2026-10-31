@@ -1185,6 +1185,144 @@ static void ui_shot_preview_stub(uint8_t *buffer)
     }
 }
 
+/* Product result page for the real demo path. The advice text is the string
+ * returned by the cloud call, never a fixed sample. A failed or empty reply
+ * still shows the local summary (reps, target, duration, form warnings). */
+
+static uint32_t ui_advice_crc(const char *text)
+{
+  uint32_t hash = 2166136261u;
+
+  if (text == NULL)
+    {
+      return 0;
+    }
+
+  while (text[0] != '\0')
+    {
+      hash = (hash ^ (uint32_t)(unsigned char)text[0]) * 16777619u;
+      ++text;
+    }
+
+  return hash;
+}
+
+static int sc2336_show_result_page(
+    const struct velafit_workout_summary_s *summary,
+    const struct velafit_coach_result_s *coach, const char *status,
+    bool dump)
+{
+  struct fb_videoinfo_s vinfo = {0};
+  struct fb_planeinfo_s pinfo = {0};
+  velafit_ui_snapshot_t snap;
+  velafit_canvas_t canvas;
+  uint64_t started_us;
+  bool has_cjk = false;
+  int fd;
+  int ret = 0;
+
+  fd = open("/dev/fb0", O_RDWR);
+  if (fd < 0)
+    {
+      return -errno;
+    }
+
+  if (ioctl(fd, FBIOGET_VIDEOINFO, (unsigned long)(uintptr_t)&vinfo) < 0 ||
+      ioctl(fd, FBIOGET_PLANEINFO, (unsigned long)(uintptr_t)&pinfo) < 0)
+    {
+      ret = -errno;
+      close(fd);
+      return ret;
+    }
+
+  if (vinfo.fmt != FB_FMT_RGB16_565 || pinfo.bpp != 16 ||
+      pinfo.fbmem == NULL)
+    {
+      close(fd);
+      return -ENOTSUP;
+    }
+
+  memset(&snap, 0, sizeof(snap));
+  snap.reps = summary->completed_reps;
+  snap.target = summary->target_reps;
+  snap.elapsed_valid = summary->duration_sec > 0;
+  snap.elapsed_sec = summary->duration_sec;
+  snap.warn_reps = summary->form_warning_reps;
+  snap.warn_valid = true;
+
+  if (coach != NULL && coach->advice[0] != '\0')
+    {
+      snap.page = VELAFIT_UI_PAGE_ADVICE;
+      snap.title = "COACH ADVICE";
+      snap.advice = coach->advice;
+      snap.advice_status = status;
+      snap.hint = status;
+      snap.hint_tone = coach->pcm_bytes > 0 ? VELAFIT_UI_TONE_NORMAL :
+                      VELAFIT_UI_TONE_WARN;
+    }
+  else
+    {
+      snap.page = VELAFIT_UI_PAGE_SUMMARY;
+      snap.title = "WORKOUT SUMMARY";
+      snap.hint = status;
+      snap.hint_tone = VELAFIT_UI_TONE_ERROR;
+    }
+
+  if (coach != NULL && coach->advice[0] != '\0')
+    {
+      const char *cursor = coach->advice;
+
+      while (cursor[0] != '\0')
+        {
+          if ((unsigned char)cursor[0] >= 0x80)
+            {
+              has_cjk = true;
+              break;
+            }
+
+          ++cursor;
+        }
+    }
+
+  started_us = preview_time_us();
+  velafit_canvas_init(&canvas, pinfo.fbmem, vinfo.xres, vinfo.yres,
+                      VELAFIT_PIXFMT_RGB565);
+  velafit_ui_render(&canvas, &snap);
+  if (ioctl(fd, FBIOPAN_CLEAR, FB_NO_OVERLAY) < 0 ||
+      ioctl(fd, FBIOPAN_DISPLAY, (unsigned long)(uintptr_t)&pinfo) < 0)
+    {
+      ret = -errno;
+    }
+
+  printf("[VELAFIT] RESULT_PAGE page=%s advice_bytes=%lu advice_crc=%08lx "
+         "cjk=%d missing=%d render_us=%llu status=%s\n",
+         snap.page == VELAFIT_UI_PAGE_ADVICE ? "ADVICE" : "SUMMARY",
+         coach != NULL ? (unsigned long)coach->advice_bytes : 0UL,
+         (unsigned long)ui_advice_crc(coach != NULL ? coach->advice : NULL),
+         has_cjk,
+         coach != NULL ? velafit_utf8_missing(coach->advice) : 0,
+         (unsigned long long)(preview_time_us() - started_us),
+         status);
+  fflush(stdout);
+
+  if (dump)
+    {
+      static char ppm_path[] = "/tmp/velafit-result.ppm";
+
+      if (ui_shot_save_ppm(ppm_path, (const uint8_t *)pinfo.fbmem,
+                           vinfo.xres, vinfo.yres, 3, -1, -1, 0, 0) == 0)
+        {
+          (void)ui_shot_dump_base64(ppm_path);
+        }
+    }
+
+  close(fd);
+
+  /* Hold the page so the operator can read it before NSH returns. */
+  sleep(5);
+  return ret;
+}
+
 static int sc2336_run_ui_page(const char *page, unsigned long reps,
                               int dump_scale, int crop_x, int crop_y,
                               int crop_w, int crop_h)
@@ -1273,6 +1411,7 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
   else if (strcmp(page, "advice") == 0)
     {
       snap.page = VELAFIT_UI_PAGE_ADVICE;
+      snap.title = "UI TEST SAMPLE";
       snap.advice =
         "YOUR DEPTH WAS CONSISTENT. KEEP THE SAME PACE FOR THE NEXT SET. "
         "LOWER SLOWLY, PAUSE FOR ONE COUNT AT THE BOTTOM, AND PUSH THE "
@@ -1280,6 +1419,87 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
         "LITTLE. BREATHE OUT ON THE WAY UP AND KEEP YOUR RIBS STACKED "
         "OVER YOUR HIPS.";
       snap.advice_status = "VOICE PLAYING";
+    }
+  else if (strcmp(page, "advicecjk") == 0)
+    {
+      /* Local labelled sample: real cloud text is Chinese UTF-8; this page
+       * proves coverage, punctuation, newline and missing-glyph behaviour.
+       * 龘 (U+9F98) is outside GB2312 on purpose. */
+      static const char cjk_sample[] =
+        "您的深蹲动作很稳定。保持节奏，下蹲时慢一点，起身时呼气。\n"
+        "共完成20次，用时185秒。注意膝盖不要内扣，保持胸口抬起。\n"
+        "缺字测试：龘。";
+
+      snap.page = VELAFIT_UI_PAGE_ADVICE;
+      snap.title = "UI TEST SAMPLE";
+      snap.advice = cjk_sample;
+      snap.advice_status = "SAMPLE - CJK + MISSING GLYPH";
+      snap.hint_tone = VELAFIT_UI_TONE_WARN;
+      printf("[VELAFIT] UI_TEST_ADVICE advice=advicecjk bytes=%u cjk=1 "
+             "missing=%d\n", (unsigned int)strlen(cjk_sample),
+             velafit_utf8_missing(cjk_sample));
+    }
+  else if (strcmp(page, "advicelong") == 0)
+    {
+      /* Long reply: more than one screen, must wrap and mark truncation. */
+      static const char long_sample[] =
+        "您的深蹲动作很稳定。保持节奏，下蹲时慢一点，起身时呼气。"
+        "共完成20次，用时185秒。注意膝盖不要内扣，保持胸口抬起，"
+        "呼吸均匀，不要憋气。下一次训练可以试着把下蹲深度再增加一点，"
+        "但不要为了深度而放松核心。组间休息六十秒，保持身体温暖。"
+        "您的深蹲动作很稳定。保持节奏，下蹲时慢一点，起身时呼气。"
+        "共完成20次，用时185秒。注意膝盖不要内扣，保持胸口抬起，"
+        "呼吸均匀，不要憋气。下一次训练可以试着把下蹲深度再增加一点，"
+        "但不要为了深度而放松核心。组间休息六十秒，保持身体温暖。"
+        "您的深蹲动作很稳定。保持节奏，下蹲时慢一点，起身时呼气。"
+        "共完成20次，用时185秒。注意膝盖不要内扣，保持胸口抬起，"
+        "呼吸均匀，不要憋气。下一次训练可以试着把下蹲深度再增加一点，"
+        "但不要为了深度而放松核心。组间休息六十秒，保持身体温暖。"
+        "您的深蹲动作很稳定。保持节奏，下蹲时慢一点，起身时呼气。"
+        "共完成20次，用时185秒。注意膝盖不要内扣，保持胸口抬起，"
+        "呼吸均匀，不要憋气。下一次训练可以试着把下蹲深度再增加一点，"
+        "但不要为了深度而放松核心。组间休息六十秒，保持身体温暖。";
+
+      snap.page = VELAFIT_UI_PAGE_ADVICE;
+      snap.title = "UI TEST SAMPLE";
+      snap.advice = long_sample;
+      snap.advice_status = "SAMPLE - LONG TEXT";
+      printf("[VELAFIT] UI_TEST_ADVICE advice=advicelong bytes=%u cjk=1 "
+             "missing=%d\n", (unsigned int)strlen(long_sample),
+             velafit_utf8_missing(long_sample));
+    }
+  else if (strcmp(page, "adviceempty") == 0)
+    {
+      snap.page = VELAFIT_UI_PAGE_ADVICE;
+      snap.title = "UI TEST SAMPLE";
+      snap.advice = "";
+      snap.advice_status = "SAMPLE - EMPTY ADVICE";
+      snap.hint_tone = VELAFIT_UI_TONE_ERROR;
+    }
+  else if (strcmp(page, "advicetts") == 0)
+    {
+      static const char tts_sample[] =
+        "您的深蹲动作很稳定。保持节奏，下蹲时慢一点，起身时呼气。";
+
+      snap.page = VELAFIT_UI_PAGE_ADVICE;
+      snap.title = "UI TEST SAMPLE";
+      snap.advice = tts_sample;
+      snap.advice_status = "VOICE UNAVAILABLE - TEXT ABOVE";
+      snap.hint_tone = VELAFIT_UI_TONE_WARN;
+    }
+  else if (strcmp(page, "advicefail") == 0)
+    {
+      /* Cloud failure keeps the local summary readable. */
+      snap.page = VELAFIT_UI_PAGE_SUMMARY;
+      snap.title = "UI TEST SAMPLE";
+      snap.reps = 20;
+      snap.target = 20;
+      snap.elapsed_sec = 185;
+      snap.elapsed_valid = true;
+      snap.warn_reps = 3;
+      snap.warn_valid = true;
+      snap.hint = "CLOUD FAILED - LOCAL SUMMARY";
+      snap.hint_tone = VELAFIT_UI_TONE_ERROR;
     }
   else
     {
@@ -3363,7 +3583,8 @@ static void show_usage(const char *progname)
   printf("  ui_page <page> [reps] [dump] [x y w h] U1 fixed page shot: "
          "idle|countdown|"
          "train0|train9|train10|train99|train100|trainlost|trainlong|"
-         "summary|advice|hintcrop|hintdark|hintmove\n");
+         "summary|advice|advicecjk|advicelong|adviceempty|advicetts|"
+         "advicefail|hintcrop|hintdark|hintmove\n");
 #endif
   printf("  capture_prompt active|done LCD dataset collection state\n");
   printf("  csi-deinit                 De-initialize and gate CSI"
@@ -3763,6 +3984,7 @@ static int sc2336_dispatch(int argc, char *argv[])
                  workout_summary.body_lost_count);
           if (velafit_coach_runtime_ready())
             {
+              memset(&coach_result, 0, sizeof(coach_result));
               ret = velafit_coach_run_runtime(&workout_summary,
                                                &coach_result);
               printf("[VELAFIT] CLOUD_SESSION %s advice_http=%d advice_ms=%lu tts_first_pcm_ms=%lu\n",
@@ -3770,10 +3992,29 @@ static int sc2336_dispatch(int argc, char *argv[])
                      coach_result.http_status,
                      coach_result.advice_latency_ms,
                      coach_result.tts_first_pcm_ms);
+
+              if (ret == 0 && coach_result.advice[0] != '\0')
+                {
+                  sc2336_show_result_page(&workout_summary, &coach_result,
+                                          coach_result.pcm_bytes > 0 ?
+                                          "VOICE PLAYED" :
+                                          "VOICE UNAVAILABLE - TEXT ABOVE",
+                                          g_demo_shot);
+                }
+              else
+                {
+                  /* Cloud or TTS failure never hides the local result. */
+                  sc2336_show_result_page(&workout_summary, NULL,
+                                          "CLOUD FAILED - LOCAL SUMMARY",
+                                          g_demo_shot);
+                }
             }
           else
             {
               printf("[VELAFIT] AI SERVICE UNAVAILABLE reason=no-runtime-key\n");
+              sc2336_show_result_page(&workout_summary, NULL,
+                                      "CLOUD OFFLINE - LOCAL SUMMARY",
+                                      g_demo_shot);
               ret = 0;
             }
         }

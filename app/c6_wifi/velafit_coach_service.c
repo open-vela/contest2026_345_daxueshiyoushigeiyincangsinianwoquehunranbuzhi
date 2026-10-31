@@ -24,6 +24,7 @@
 #include "velafit_coach_service.h"
 #include "../es8311_audio/velafit_pcm_stream.h"
 #include "../velafit_ai/render/velafit_render.h"
+#include "../velafit_ai/render/velafit_ui.h"
 
 #define COACH_ADVICE_LIMIT 480
 
@@ -160,36 +161,59 @@ static int coach_lcd_begin(const struct velafit_workout_summary_s *s,
 {
   struct fb_videoinfo_s vinfo = {0};
   struct fb_planeinfo_s pinfo = {0};
+  velafit_ui_snapshot_t snap;
   velafit_canvas_t canvas;
-  char line[80];
+  int ret = 0;
   int fd = open("/dev/fb0", O_RDWR);
   if (fd < 0) return -errno;
   if (ioctl(fd, FBIOGET_VIDEOINFO, (unsigned long)(uintptr_t)&vinfo) < 0 ||
       ioctl(fd, FBIOGET_PLANEINFO, (unsigned long)(uintptr_t)&pinfo) < 0)
-    { int ret = -errno; close(fd); return ret; }
+    { int err = -errno; close(fd); return err; }
   if (vinfo.fmt != FB_FMT_RGB16_565 || pinfo.bpp != 16 || pinfo.fbmem == NULL)
     { close(fd); return -ENOTSUP; }
 
+  /* One snapshot drives the page: the screen text is the returned advice,
+   * never a hard-coded sentence. Empty/failed replies keep the local
+   * summary so the result stays readable without the cloud. */
+  memset(&snap, 0, sizeof(snap));
+  snap.reps = s->completed_reps;
+  snap.target = s->target_reps;
+  snap.elapsed_valid = s->duration_sec > 0;
+  snap.elapsed_sec = s->duration_sec;
+  snap.warn_reps = s->form_warning_reps;
+  snap.warn_valid = true;
+  snap.hint_tone = (advice != NULL && advice[0] != '\0') ?
+                   VELAFIT_UI_TONE_NORMAL : VELAFIT_UI_TONE_ERROR;
+
+  if (advice != NULL && advice[0] != '\0')
+    {
+      snap.page = VELAFIT_UI_PAGE_ADVICE;
+      snap.title = "COACH ADVICE";
+      snap.advice = advice;
+      snap.advice_status = (status != NULL && status[0] != '\0') ?
+                           status : "VOICE PLAYING";
+      snap.hint = snap.advice_status;
+    }
+  else
+    {
+      snap.page = VELAFIT_UI_PAGE_SUMMARY;
+      snap.title = "WORKOUT SUMMARY";
+      snap.hint = (status != NULL && status[0] != '\0') ? status :
+                  "AI SERVICE UNAVAILABLE";
+    }
+
   velafit_canvas_init(&canvas, pinfo.fbmem, vinfo.xres, vinfo.yres,
                       VELAFIT_PIXFMT_RGB565);
-  velafit_draw_rect_filled(&canvas, 0, 0, vinfo.xres, vinfo.yres,
-                           VELAFIT_COLOR_DARKGRAY);
-  velafit_draw_string(&canvas, 110, 55, "WORKOUT COMPLETE",
-                      VELAFIT_COLOR_GREEN, VELAFIT_COLOR_DARKGRAY, 4);
-  snprintf(line, sizeof(line), "%u SQUATS     %u SEC",
-           s->completed_reps, s->duration_sec);
-  velafit_draw_string(&canvas, 220, 145, line, VELAFIT_COLOR_WHITE,
-                      VELAFIT_COLOR_DARKGRAY, 3);
-  velafit_draw_string(&canvas, 330, 225, "AI COACH",
-                      VELAFIT_COLOR_YELLOW, VELAFIT_COLOR_DARKGRAY, 4);
-  velafit_draw_string(&canvas, 350, 290, status,
-                      VELAFIT_COLOR_WHITE, VELAFIT_COLOR_DARKGRAY, 3);
+  velafit_ui_render(&canvas, &snap);
 
-  /* The current built-in 5x7 font has no CJK glyphs. Keep the real Chinese
-   * advice for TTS and serial evidence instead of rendering mojibake. */
-  (void)advice;
+  if (ioctl(fd, FBIOPAN_CLEAR, FB_NO_OVERLAY) < 0 ||
+      ioctl(fd, FBIOPAN_DISPLAY, (unsigned long)(uintptr_t)&pinfo) < 0)
+    {
+      ret = -errno;
+    }
+
   close(fd);
-  return 0;
+  return ret;
 }
 
 int velafit_coach_run(const char *api_key,
@@ -247,7 +271,7 @@ int velafit_coach_run(const char *api_key,
          result->http_status, result->advice_latency_ms,
          (unsigned long)result->advice_bytes);
   printf("[VELAFIT] AI advice: %s\n", result->advice);
-  coach_lcd_begin(summary, "", result->advice);
+  coach_lcd_begin(summary, "VOICE PLAYING", result->advice);
 
   printf("[VELAFIT] AI_RESULT -> AI_PLAYBACK\n");
   ret = velafit_pcm_stream_start(&player, 24000);
@@ -275,6 +299,7 @@ int velafit_coach_run(const char *api_key,
 tts_fail:
   /* The LCD keeps the real advice.  Audio failure is non-fatal to result. */
   if (player != NULL) velafit_pcm_stream_abort(player);
+  coach_lcd_begin(summary, "VOICE UNAVAILABLE - TEXT ABOVE", result->advice);
   printf("[VELAFIT] TTS_FAIL ret=%d; AI_RESULT retained; -> IDLE\n", ret);
   coach_log_idle_heap(heap_before);
   return 0;
