@@ -25,6 +25,14 @@ config CONTEST2026_345_C6_WIFI_AUTOINIT
 		Run the SDIO link probe before NSH starts.  Keep this disabled while
 		bringing up the transport so a failed probe cannot hide the console.
 
+config CONTEST2026_345_VELAFIT_KIOSK
+	bool "Start the VelaFit squat demo at boot"
+	default n
+	---help---
+		Create the demo task from board_app_initialize(), so the product
+		page comes up on the panel without a console or a shell command.
+		NSH still runs; the demo owns the framebuffer.
+
 config ESPRESSIF_SPIFLASH_AUTO_BRINGUP
 	bool "Automatic mount of SPI Flash MTD"
 	depends on ESPRESSIF_MTD

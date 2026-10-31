@@ -46,6 +46,9 @@
 
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/video/fb.h>
+#ifdef CONFIG_INPUT_TOUCHSCREEN
+#include <nuttx/input/touchscreen.h>
+#endif
 
 #ifdef CONFIG_ESP32P4_MIPI_CSI
 #include <arch/chip/esp32p4_mipi_csi.h>
@@ -1653,6 +1656,12 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
 
       case VF_IDLE:
       case VF_WAKEUP:
+        /* Kiosk entry page: no console, no command, the panel starts the set.
+         * The hint band carries the same call to action. */
+        snap.title = "深蹲训练";
+        snap.state_label = "触摸屏幕开始";
+        break;
+
       case VF_PAUSED:
       default:
         break;
@@ -2393,6 +2402,55 @@ static void vf_perf_report(const char *stage, struct vf_perf_ring_s *ring)
          vf_perf_percentile(ring, 100));
 }
 
+/* Product page wake source.  The kiosk has no console and no command line,
+ * so a finger on the panel is the only way to start a set.  The frame loop
+ * polls the touchscreen without blocking and consumes every pending sample.
+ */
+
+#ifdef CONFIG_INPUT_TOUCHSCREEN
+#define VF_DEMO_TOUCH_DEV "/dev/input0"
+
+static int g_demo_touch_fd = -1;
+
+static bool vf_demo_touch_pressed(void)
+{
+  uint8_t buffer[SIZEOF_TOUCH_SAMPLE_S(5)];
+  FAR struct touch_sample_s *sample =
+    (FAR struct touch_sample_s *)buffer;
+  ssize_t nbytes;
+  bool pressed = false;
+  int i;
+
+  if (g_demo_touch_fd < 0)
+    {
+      g_demo_touch_fd = open(VF_DEMO_TOUCH_DEV, O_RDONLY | O_NONBLOCK);
+      if (g_demo_touch_fd < 0)
+        {
+          return false;
+        }
+    }
+
+  for (;;)
+    {
+      nbytes = read(g_demo_touch_fd, buffer, sizeof(buffer));
+      if (nbytes <= 0)
+        {
+          break;
+        }
+
+      for (i = 0; i < sample->npoints && i < 5; i++)
+        {
+          if (sample->point[i].flags & TOUCH_DOWN)
+            {
+              pressed = true;
+            }
+        }
+    }
+
+  return pressed;
+}
+#endif
+
 /* pose_mode: 0 camera only, 1 MoveNet, 2 TinyPose squat, 3 body check,
  * 4 exact final RGB96 model-input preview (no inference), 5 product demo.
  */
@@ -2480,6 +2538,8 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
   float demo_shot_kpts[8][2];
   float demo_shot_scores[8];
   bool demo_do_infer=true;
+  bool demo_wait_touch=false;
+  bool demo_touch_used=false;
   uint64_t demo_infer_last_ms=0;
   bool demo_pose_valid=false;
   uint64_t demo_pose_ms=0;
@@ -2619,14 +2679,23 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
           if (pose_mode == 5)
             {
               velafit_session_init(&demo_session);
+              velafit_hint_init(&demo_hint,NULL);
+              demo_hint_generation=demo_session.generation;
+              demo_hint_id=VELAFIT_HINT_IDLE;
+#ifdef CONFIG_INPUT_TOUCHSCREEN
+              /* Wait for a finger instead of waking the page from software,
+               * so the same firmware runs with no console and no command. */
+              demo_wait_touch=true;
+              printf("[VELAFIT] IDLE waiting for touch dev=%s target=%u\n",
+                     VF_DEMO_TOUCH_DEV,demo_target);
+#else
               ret=velafit_session_event(&demo_session,VELAFIT_VOICE_WAKE,
                                          preview_time_us()/1000);
               if(ret<0) goto out;
-              demo_last_state=demo_session.state;
-              velafit_hint_init(&demo_hint,NULL);
-              demo_hint_generation=demo_session.generation;
               demo_hint_id=VELAFIT_HINT_STEP_IN;
               printf("[VELAFIT] IDLE -> BODY_CHECK target=%u\n",demo_target);
+#endif
+              demo_last_state=demo_session.state;
             }
           printf("PREVIEW POSE: backend=%s worker=inline pending<=1 "
                  "result_TTL_ms=1000 confidence_gate=%.2f\n",
@@ -2759,6 +2828,21 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
       if (pose_mode == 5)
         {
           uint64_t demo_now_ms=t2/1000;
+#ifdef CONFIG_INPUT_TOUCHSCREEN
+          /* No console and no command: the panel is the only wake source.
+           * Only the idle page waits for it, so a finger during a set can
+           * never restart the counter. */
+          if(demo_wait_touch && demo_session.state==VF_IDLE &&
+             vf_demo_touch_pressed())
+            {
+              ret=velafit_session_event(&demo_session,VELAFIT_VOICE_WAKE,
+                                        demo_now_ms);
+              if(ret<0 && ret!=-EALREADY) goto out;
+              demo_wait_touch=false;
+              demo_touch_used=true;
+              demo_last_state=demo_session.state;
+            }
+#endif
           ret=velafit_session_tick(&demo_session,demo_now_ms);
           if(ret<0) goto out;
           if(demo_session.state!=demo_last_state)
@@ -3337,6 +3421,13 @@ out:
   free(model_rgb96);
 #endif
   free(render_buffer);
+#ifdef CONFIG_INPUT_TOUCHSCREEN
+  if (g_demo_touch_fd >= 0)
+    {
+      close(g_demo_touch_fd);
+      g_demo_touch_fd = -1;
+    }
+#endif
   if (streaming)
     {
       int stop_ret = sc2336_stop_stream_quiet(fd);
@@ -3458,6 +3549,8 @@ out:
                    demo_finished_ms-demo_session_start_ms:0));
           printf("[VELAFIT] DEMO sets=%lu\n",
                  (unsigned long)demo_set_count);
+          printf("[VELAFIT] TOUCH wake=%s\n",
+                 demo_touch_used ? "touchscreen" : "none");
           for (unsigned int s = 0; s < demo_set_count; s++)
             {
               printf("[VELAFIT] DEMO set=%u reps=%lu elapsed_ms=%llu\n",

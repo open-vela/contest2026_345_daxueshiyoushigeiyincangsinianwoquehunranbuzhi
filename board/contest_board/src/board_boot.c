@@ -9,11 +9,15 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <syslog.h>
+#include <unistd.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/fs/fs.h>
+#include <nuttx/kthread.h>
+#include <nuttx/sched.h>
 
 #include "board_gpio.h"
 #include "board_i2c.h"
@@ -27,6 +31,32 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+#ifdef CONFIG_CONTEST2026_345_VELAFIT_KIOSK
+extern int velafit_demo_main(int argc, char *argv[]);
+
+/* A kernel thread starts with no file descriptors, so the console has to be
+ * wired up before the demo runs.  The demo still prints its acceptance lines
+ * to the USB Serial/JTAG console and NSH stays available next to it. */
+
+static int velafit_kiosk_entry(int argc, char *argv[])
+{
+  int fd = open("/dev/console", O_RDWR);
+
+  if (fd >= 0)
+    {
+      dup2(fd, 0);
+      dup2(fd, 1);
+      dup2(fd, 2);
+      if (fd > 2)
+        {
+          close(fd);
+        }
+    }
+
+  return velafit_demo_main(argc, argv);
+}
+#endif
 
 void esp_board_initialize(void)
 {
@@ -122,6 +152,27 @@ int board_app_initialize(uintptr_t arg)
 
       ret = 0;
     }
+#endif
+
+#ifdef CONFIG_CONTEST2026_345_VELAFIT_KIOSK
+  /* The panel comes up on the demo page at power-on, so the board is usable
+   * with no console attached and no shell command typed.  kthread_create()
+   * prepends the task name as argv[0], so only the arguments follow here. */
+  {
+    static char * const kiosk_argv[] =
+      {
+        "demo_now", "3", "600", NULL
+      };
+
+    ret = kthread_create("sc2336_probe", SCHED_PRIORITY_DEFAULT, 65536,
+                         velafit_kiosk_entry, kiosk_argv);
+    if (ret < 0)
+      {
+        syslog(LOG_ERR, "ERROR: VelaFit kiosk start failed: %d\n", ret);
+      }
+
+    ret = 0;
+  }
 #endif
 
 #ifndef CONFIG_FS_PROCFS
