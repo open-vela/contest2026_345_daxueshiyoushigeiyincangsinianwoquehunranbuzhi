@@ -58,6 +58,19 @@ typedef struct
   /* Advice page body (ASCII until a CJK font is delivered) */
   const char *advice;
   const char *advice_status;
+
+  /* Decorative heartbeat (U6). heart_phase is a 0..7 animation step; when
+   * heart_anim is false the shape is drawn at its rest size so an A/B timing
+   * run can disable the animation. No page reads this back. */
+  bool heart_visible;
+  bool heart_anim;
+  uint8_t heart_phase;
+
+  /* Simulated rate for the UI demo page only. Set exclusively by the demo
+   * page script, always accompanied by the permanent SIM HR / DEMO tags,
+   * and never routed into a session, summary, cloud request or statistic. */
+  bool sim_hr_valid;
+  uint32_t sim_hr_bpm;
 } velafit_ui_snapshot_t;
 
 #ifdef __cplusplus

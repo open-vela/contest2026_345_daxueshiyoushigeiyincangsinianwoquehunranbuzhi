@@ -52,6 +52,10 @@
 #define VF_UI_WARN            VELAFIT_COLOR_RGB(255, 196, 0)
 #define VF_UI_ERROR           VELAFIT_COLOR_RGB(255, 69, 79)
 
+/* Decorative heartbeat only. Never a measured value: the real page shows
+ * this shape without any BPM number. */
+#define VF_UI_HEART            VELAFIT_COLOR_RGB(255, 82, 102)
+
 /* 5x7 glyph metrics used by velafit_draw_string */
 #define VF_UI_GLYPH_ADV       6
 #define VF_UI_GLYPH_H         7
