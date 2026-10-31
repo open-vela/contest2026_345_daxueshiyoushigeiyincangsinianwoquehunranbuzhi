@@ -1254,7 +1254,7 @@ static int sc2336_show_result_page(
   if (coach != NULL && coach->advice[0] != '\0')
     {
       snap.page = VELAFIT_UI_PAGE_ADVICE;
-      snap.title = "COACH ADVICE";
+      snap.title = "教练建议";
       snap.advice = coach->advice;
       snap.advice_status = status;
       snap.hint = status;
@@ -1264,7 +1264,7 @@ static int sc2336_show_result_page(
   else
     {
       snap.page = VELAFIT_UI_PAGE_SUMMARY;
-      snap.title = "WORKOUT SUMMARY";
+      snap.title = "训练总结";
       snap.hint = status;
       snap.hint_tone = VELAFIT_UI_TONE_ERROR;
     }
@@ -1353,35 +1353,35 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
   snap.tracking = true;
   snap.target = 20;
   snap.reps = reps;
-  snap.state_label = "SQUATS";
-  snap.hint = "SHOULDERS TO ANKLES IN FRAME";
+  snap.state_label = "深蹲";
+  snap.hint = "请让肩到脚完整入镜";
   snap.hint_tone = VELAFIT_UI_TONE_NORMAL;
 
   if (strcmp(page, "idle") == 0)
     {
       snap.page = VELAFIT_UI_PAGE_IDLE;
-      snap.hint = "PRESS START TO BEGIN";
+      snap.hint = "准备好就开始";
     }
   else if (strcmp(page, "countdown") == 0)
     {
       snap.page = VELAFIT_UI_PAGE_TRAINING;
       snap.countdown = true;
       snap.countdown_number = 3;
-      snap.state_label = "GET SET";
-      snap.hint = "GET READY";
+      snap.state_label = "就位";
+      snap.hint = "准备开始";
     }
   else if (strcmp(page, "trainlost") == 0)
     {
       snap.page = VELAFIT_UI_PAGE_TRAINING;
       snap.tracking = false;
-      snap.state_label = "NO TRACK";
-      snap.hint = "STEP INTO FRAME";
+      snap.state_label = "未检测";
+      snap.hint = "请站入画面";
       snap.hint_tone = VELAFIT_UI_TONE_WARN;
     }
   else if (strcmp(page, "trainlong") == 0)
     {
       snap.page = VELAFIT_UI_PAGE_TRAINING;
-      snap.hint = "POSE NOT AVAILABLE - ADJUST LIGHT OR STEP BACK";
+      snap.hint = "姿态丢失 请调整位置";
       snap.hint_tone = VELAFIT_UI_TONE_WARN;
     }
   else if (strcmp(page, "hintcrop") == 0 ||
@@ -1397,8 +1397,8 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
                               VELAFIT_HINT_MOVE_BACK);
 
       snap.page = VELAFIT_UI_PAGE_TRAINING;
-      snap.title = "UI TEST HINT";
-      snap.state_label = "LAYOUT";
+      snap.title = "提示测试";
+      snap.state_label = "布局";
       snap.hint = velafit_hint_text(id);
       snap.hint_tone = velafit_hint_tone(id);
     }
@@ -1421,19 +1421,19 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
       snap.elapsed_valid = true;
       snap.good_reps = 17;
       snap.good_valid = true;
-      snap.hint = "START AGAIN WHEN READY";
+      snap.hint = "准备好后重新开始";
     }
   else if (strcmp(page, "advice") == 0)
     {
       snap.page = VELAFIT_UI_PAGE_ADVICE;
-      snap.title = "UI TEST SAMPLE";
+      snap.title = "建议样例";
       snap.advice =
         "YOUR DEPTH WAS CONSISTENT. KEEP THE SAME PACE FOR THE NEXT SET. "
         "LOWER SLOWLY, PAUSE FOR ONE COUNT AT THE BOTTOM, AND PUSH THE "
         "FLOOR AWAY. IF YOUR KNEES DRIFT INWARD, WIDEN YOUR STANCE A "
         "LITTLE. BREATHE OUT ON THE WAY UP AND KEEP YOUR RIBS STACKED "
         "OVER YOUR HIPS.";
-      snap.advice_status = "VOICE PLAYING";
+      snap.advice_status = "语音播放中";
     }
   else if (strcmp(page, "advicecjk") == 0)
     {
@@ -1446,9 +1446,9 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
         "缺字测试：龘。";
 
       snap.page = VELAFIT_UI_PAGE_ADVICE;
-      snap.title = "UI TEST SAMPLE";
+      snap.title = "建议样例";
       snap.advice = cjk_sample;
-      snap.advice_status = "SAMPLE - CJK + MISSING GLYPH";
+      snap.advice_status = "样例：中文与缺字";
       snap.hint_tone = VELAFIT_UI_TONE_WARN;
       printf("[VELAFIT] UI_TEST_ADVICE advice=advicecjk bytes=%u cjk=1 "
              "missing=%d\n", (unsigned int)strlen(cjk_sample),
@@ -1476,9 +1476,9 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
         "但不要为了深度而放松核心。组间休息六十秒，保持身体温暖。";
 
       snap.page = VELAFIT_UI_PAGE_ADVICE;
-      snap.title = "UI TEST SAMPLE";
+      snap.title = "建议样例";
       snap.advice = long_sample;
-      snap.advice_status = "SAMPLE - LONG TEXT";
+      snap.advice_status = "样例：长文本";
       printf("[VELAFIT] UI_TEST_ADVICE advice=advicelong bytes=%u cjk=1 "
              "missing=%d\n", (unsigned int)strlen(long_sample),
              velafit_utf8_missing(long_sample));
@@ -1486,9 +1486,9 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
   else if (strcmp(page, "adviceempty") == 0)
     {
       snap.page = VELAFIT_UI_PAGE_ADVICE;
-      snap.title = "UI TEST SAMPLE";
+      snap.title = "建议样例";
       snap.advice = "";
-      snap.advice_status = "SAMPLE - EMPTY ADVICE";
+      snap.advice_status = "样例：暂无建议";
       snap.hint_tone = VELAFIT_UI_TONE_ERROR;
     }
   else if (strcmp(page, "advicetts") == 0)
@@ -1497,23 +1497,23 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
         "您的深蹲动作很稳定。保持节奏，下蹲时慢一点，起身时呼气。";
 
       snap.page = VELAFIT_UI_PAGE_ADVICE;
-      snap.title = "UI TEST SAMPLE";
+      snap.title = "建议样例";
       snap.advice = tts_sample;
-      snap.advice_status = "VOICE UNAVAILABLE - TEXT ABOVE";
+      snap.advice_status = "语音不可用 请看文字";
       snap.hint_tone = VELAFIT_UI_TONE_WARN;
     }
   else if (strcmp(page, "advicefail") == 0)
     {
       /* Cloud failure keeps the local summary readable. */
       snap.page = VELAFIT_UI_PAGE_SUMMARY;
-      snap.title = "UI TEST SAMPLE";
+      snap.title = "建议样例";
       snap.reps = 20;
       snap.target = 20;
       snap.elapsed_sec = 185;
       snap.elapsed_valid = true;
       snap.warn_reps = 3;
       snap.warn_valid = true;
-      snap.hint = "CLOUD FAILED - LOCAL SUMMARY";
+      snap.hint = "云服务失败 已显示本地总结";
       snap.hint_tone = VELAFIT_UI_TONE_ERROR;
     }
   else
@@ -1604,7 +1604,7 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
   snap.tracking = tracking;
   snap.reps = squat->total_reps;
   snap.target = target;
-  snap.state_label = "SQUATS";
+  snap.state_label = "深蹲";
 
   /* The hint band has one owner: the policy already resolved priority,
    * debounce and validity.  The page never invents a second line. */
@@ -1614,12 +1614,14 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
   switch (session->state)
     {
       case VF_BODY_CHECK:
-        snap.title = "GET IN POSITION";
-        snap.state_label = "READY?";
+        /* The band header stays the page name; the positioning copy lives
+         * once, in the hint band, so the same sentence is never printed twice. */
+        snap.title = "深蹲训练";
+        snap.state_label = "准备好了吗";
         break;
 
       case VF_READY:
-        snap.state_label = "GET READY";
+        snap.state_label = "准备开始";
         break;
 
       case VF_COUNTDOWN:
@@ -1629,14 +1631,14 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
           unsigned int number = (unsigned int)((left + 999) / 1000);
           snap.countdown = true;
           snap.countdown_number = number < 1 ? 1 : number;
-          snap.state_label = "GET SET";
+          snap.state_label = "就位";
         }
         break;
 
       case VF_RUNNING:
         {
           bool show_go = now_ms - session_start_ms < VF_UI_GO_BANNER_MS;
-          snap.state_label = show_go ? "GO" : "SQUATS";
+          snap.state_label = show_go ? "开始" : "深蹲";
           snap.elapsed_valid = true;
           snap.elapsed_sec = (uint32_t)(session->active_ms / 1000);
         }
@@ -1717,6 +1719,10 @@ static int velafit_demo_restart(velafit_session_t *session,
 /* Hint band transitions retained until a safe point, because console TX can
  * block while CSI and DSI are active. */
 #define VF_DEMO_MAX_HINTS 16
+/* Product loop pacing: camera every frame, pose about once a second.  The
+ * cached pose keeps the skeleton on screen between inferences. */
+#define VF_DEMO_INFER_MIN_MS 900
+#define VF_DEMO_POSE_HOLD_MS 1300
 struct vf_demo_hint_log_s
 {
   uint64_t at_ms;
@@ -2174,7 +2180,8 @@ static int velafit_hint_selftest(void)
       const char *text = velafit_hint_text((velafit_hint_id_t)i);
       ++total;
       if (row == NULL || row->text == NULL || text[0] == '\0' ||
-          strlen(text) > VF_UI_HINT_MAX_CHARS ||
+          velafit_utf8_width(text, VF_UI_HINT_SCALE) >
+            VF_UI_SCREEN_H - 2 * VF_UI_GAP_M ||
           strstr(text, "KNEE") != NULL ||
           strstr(text, "VALGUS") != NULL ||
           strstr(text, "PERFECT") != NULL)
@@ -2472,6 +2479,11 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
   unsigned int demo_shot_visible=0;
   float demo_shot_kpts[8][2];
   float demo_shot_scores[8];
+  bool demo_do_infer=true;
+  uint64_t demo_infer_last_ms=0;
+  bool demo_pose_valid=false;
+  uint64_t demo_pose_ms=0;
+  pose_frame_t demo_pose_cache;
 #ifdef VELAFIT_TINY_POSE
   struct tiny_preview_context tiny_stats={0};
 #endif
@@ -2565,7 +2577,7 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
   if(pose_mode)
     {
       model_rgb=malloc(192*192*3);
-      if (pose_mode == 3 || pose_mode == 4 || pose_mode == 5)
+      if (pose_mode == 3 || pose_mode == 4)
         {
           model_rgb96=malloc(96*96*3);
           if (!model_rgb || !model_rgb96)
@@ -2717,6 +2729,19 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
           ret = -ENOSYS;
 #endif
         }
+      else if (pose_mode == 5)
+        {
+          /* Product page: the live picture fills the whole camera block every
+           * frame.  Inference is decoupled below, so smoothness no longer
+           * depends on the model. */
+          ret = sc2336_raw10_bggr_preview_rgb565_rect(
+            frame.buffer, frame.bytes_received, 1280, 720,
+            render_buffer, pinfo.fblen, vinfo.xres, vinfo.yres,
+            pinfo.stride / sizeof(uint16_t),
+            VF_UI_CAMERA_X0, VF_UI_CAMERA_Y0,
+            VF_UI_CAMERA_X1 - VF_UI_CAMERA_X0,
+            VF_UI_CAMERA_Y1 - VF_UI_CAMERA_Y0);
+        }
       else
         {
           ret = sc2336_raw10_bggr_preview_rgb565(
@@ -2766,6 +2791,17 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
             }
         }
 
+#ifdef CONFIG_VELAFIT_POSE_BACKEND_TFLM
+      if (pose_mode == 5)
+        {
+          /* At the target 3-4 fps this is one inference every 3-4 frames.
+           * Between results the page keeps redrawing the cached pose, so the
+           * camera never waits for the model. */
+          demo_do_infer = (t2 / 1000) - demo_infer_last_ms >=
+                          VF_DEMO_INFER_MIN_MS;
+        }
+#endif
+
       if (!capture_active && t2 >= capture_started_us)
         {
           capture_active = true;
@@ -2793,36 +2829,23 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
           fflush(stdout);
         }
 #ifdef CONFIG_VELAFIT_POSE_BACKEND_TFLM
-      if(worker)
+      if(worker && (pose_mode != 5 || demo_do_infer))
         {
           struct sc2336_rgb_capture_s conversion;
           memset(&conversion,0,sizeof(conversion));
           ret=sc2336_raw10_bggr_letterbox(frame.buffer,frame.bytes_received,
             1280,720,model_rgb,192*192*3,192,192,&conversion);
           if(ret<0) goto out;
-          if (pose_mode == 3 || pose_mode == 5)
+          if (pose_mode == 3)
             {
 #ifdef VELAFIT_TINY_POSE
               /* BODY_CHECK must show the exact image used by TinyPose.  The
                * generic camera preview has a different cover crop and cannot
                * prove whether a required keypoint is inside model space. */
               velafit_tiny_pose_debug_rgb96(model_rgb, model_rgb96);
-              if (pose_mode == 5)
-                {
-                  /* Product training page: camera lives inside the UI band. */
-                  ret=sc2336_model_preview_blit_rect_ccw_rgb565(model_rgb96,
-                    96*96*3,render_buffer,pinfo.fblen,vinfo.xres,vinfo.yres,
-                    pinfo.stride/sizeof(uint16_t),
-                    VF_UI_PREVIEW_X0, VF_UI_PREVIEW_Y0,
-                    VF_UI_PREVIEW_X1 - VF_UI_PREVIEW_X0,
-                    VF_UI_PREVIEW_Y1 - VF_UI_PREVIEW_Y0);
-                }
-              else
-                {
-                  ret=sc2336_model_preview_blit_ccw_rgb565(model_rgb96,
-                    96*96*3,render_buffer,pinfo.fblen,vinfo.xres,vinfo.yres,
-                    pinfo.stride/sizeof(uint16_t),model_preview_scale);
-                }
+              ret=sc2336_model_preview_blit_ccw_rgb565(model_rgb96,
+                96*96*3,render_buffer,pinfo.fblen,vinfo.xres,vinfo.yres,
+                pinfo.stride/sizeof(uint16_t),model_preview_scale);
               if(ret<0) goto out;
 #else
               ret=-ENOSYS;
@@ -2852,6 +2875,10 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
               vf_perf_add(&perf_infer_wall,
                           preview_time_us()-infer_wall_start_us);
             }
+          if (pose_mode == 5)
+            {
+              demo_infer_last_ms = preview_time_us() / 1000;
+            }
           pose_frame_t pose;
           ret=vf_pose_worker_latest(worker,preview_time_us()/1000,1000,
                                     &pose,&worker_stats);
@@ -2862,13 +2889,11 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                                   vinfo.yres,VELAFIT_PIXFMT_RGB565);
               if (pose_mode == 5)
                 {
-                  /* Overlay matches the band image exactly: same 96x96
-                   * letterbox, same CCW90 rotation, eight keypoints only.
-                   * latest() already dropped results older than 1 s. */
-                  velafit_render_model_skeleton(&canvas,&pose,
-                    VF_UI_PREVIEW_X0, VF_UI_PREVIEW_Y0,
-                    VF_UI_PREVIEW_X1 - VF_UI_PREVIEW_X0,
-                    VF_UI_PREVIEW_Y1 - VF_UI_PREVIEW_Y0);
+                  /* Cache this result for the frames that skip inference.
+                   * The overlay is drawn from the cache every frame. */
+                  demo_pose_cache = pose;
+                  demo_pose_valid = true;
+                  demo_pose_ms = pose.timestamp_ms;
                 }
               else if (pose_mode != 3)
                 {
@@ -3099,14 +3124,6 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
             }
           else if(ret==-ESTALE) ++pose_stale;
           else if(ret!=-EAGAIN && ret!=-EBUSY) goto out;
-          if(ret!=0 && pose_mode==5)
-            {
-              /* No fresh result this frame: stop claiming tracking, but keep
-               * drawing and counting.  latest() already expired the old pose,
-               * and the camera band is redrawn above, so no stale skeleton
-               * survives on screen. */
-              demo_tracking=false;
-            }
           ret=0;
           t2=preview_time_us();
         }
@@ -3121,6 +3138,29 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
           velafit_hint_input_t hint_in;
           velafit_hint_result_t hint_res;
           uint64_t hint_now_ms = preview_time_us() / 1000;
+
+          velafit_canvas_init(&page_canvas, (uint8_t *)render_buffer,
+                              vinfo.xres, vinfo.yres,
+                              VELAFIT_PIXFMT_RGB565);
+
+          /* The camera rectangle is already painted for this frame. Redraw
+           * the skeleton from the cached pose so bones stay visible while the
+           * next inference is pending; results older than the hold window are
+           * dropped instead of shown as if they were live. */
+          if (demo_pose_valid && hint_now_ms >= demo_pose_ms &&
+              hint_now_ms - demo_pose_ms <= VF_DEMO_POSE_HOLD_MS)
+            {
+              velafit_render_sc2336_skeleton_rect(&page_canvas,
+                &demo_pose_cache, 1280, 720,
+                VF_UI_CAMERA_X0, VF_UI_CAMERA_Y0,
+                VF_UI_CAMERA_X1 - VF_UI_CAMERA_X0,
+                VF_UI_CAMERA_Y1 - VF_UI_CAMERA_Y0, 0);
+              demo_tracking = tiny_pose_fsm_ready(&demo_pose_cache);
+            }
+          else
+            {
+              demo_tracking = false;
+            }
 
           if (demo_session.generation != demo_hint_generation)
             {
@@ -3156,9 +3196,6 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
             }
 
           demo_hint_id = hint_res.id;
-          velafit_canvas_init(&page_canvas, (uint8_t *)render_buffer,
-                              vinfo.xres, vinfo.yres,
-                              VELAFIT_PIXFMT_RGB565);
           velafit_demo_draw(&page_canvas, &demo_session,
                             &squat_fsm, demo_target, demo_tracking,
                             hint_now_ms, demo_session_start_ms,
@@ -4258,15 +4295,15 @@ static int sc2336_dispatch(int argc, char *argv[])
                 {
                   sc2336_show_result_page(&workout_summary, &coach_result,
                                           coach_result.pcm_bytes > 0 ?
-                                          "VOICE PLAYED" :
-                                          "VOICE UNAVAILABLE - TEXT ABOVE",
+                                          "语音已播放" :
+                                          "语音不可用 请看文字",
                                           g_demo_shot);
                 }
               else
                 {
                   /* Cloud or TTS failure never hides the local result. */
                   sc2336_show_result_page(&workout_summary, NULL,
-                                          "CLOUD FAILED - LOCAL SUMMARY",
+                                          "云服务失败 已显示本地总结",
                                           g_demo_shot);
                 }
             }
@@ -4274,7 +4311,7 @@ static int sc2336_dispatch(int argc, char *argv[])
             {
               printf("[VELAFIT] AI SERVICE UNAVAILABLE reason=no-runtime-key\n");
               sc2336_show_result_page(&workout_summary, NULL,
-                                      "CLOUD OFFLINE - LOCAL SUMMARY",
+                                      "云服务离线 已显示本地总结",
                                       g_demo_shot);
               ret = 0;
             }

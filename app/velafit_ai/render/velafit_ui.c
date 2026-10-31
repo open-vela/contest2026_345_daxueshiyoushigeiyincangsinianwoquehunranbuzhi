@@ -40,47 +40,6 @@ static int ui_text_width(const char *text, int scale)
   return (int)((length * VF_UI_GLYPH_ADV - 1) * (size_t)scale);
 }
 
-/* Copy at most max_chars glyphs. Longer text is truncated with "..." so a
- * page can never rely on clipping to hide an overflow. */
-
-static void ui_copy_fit(char *dst, size_t cap, const char *src,
-                        size_t max_chars)
-{
-  size_t length;
-
-  if (cap == 0)
-    {
-      return;
-    }
-
-  if (src == NULL)
-    {
-      dst[0] = '\0';
-      return;
-    }
-
-  length = strlen(src);
-  if (max_chars >= cap)
-    {
-      max_chars = cap - 1;
-    }
-
-  if (length <= max_chars)
-    {
-      memcpy(dst, src, length + 1);
-      return;
-    }
-
-  if (max_chars <= 3)
-    {
-      dst[0] = '\0';
-      return;
-    }
-
-  memcpy(dst, src, max_chars - 3);
-  memcpy(dst + max_chars - 3, "...", 4);
-}
-
 /* Draw text centered on (cx, cy) in framebuffer coordinates. velafit_draw_string
  * takes the top-left corner of the unrotated box, so recenter here. */
 
@@ -97,6 +56,78 @@ static void ui_draw_center(velafit_canvas_t *canvas, int cx, int cy,
 
   velafit_draw_string(canvas, cx - width / 2, cy - (VF_UI_GLYPH_H * scale) / 2,
                       text, fg, bg, scale);
+}
+
+static void ui_draw_center_utf8(velafit_canvas_t *canvas, int cx, int cy,
+                                const char *text, velafit_color_t fg,
+                                int scale);
+
+/* Mixed ASCII/CJK centered text that never clips: overlong strings are cut at
+ * a codepoint boundary and marked with "...". Bands use this so Chinese keeps
+ * its own glyph cells instead of being cut by byte count. */
+
+static void ui_draw_fit_utf8(velafit_canvas_t *canvas, int cx, int cy,
+                             const char *text, velafit_color_t fg,
+                             int scale, int max_width)
+{
+  char line[192];
+  const char *cursor;
+  size_t used = 0;
+  int width = 0;
+
+  if (canvas == NULL || text == NULL || text[0] == '\0' || max_width <= 0)
+    {
+      return;
+    }
+
+  if (velafit_utf8_width(text, scale) <= max_width)
+    {
+      ui_draw_center_utf8(canvas, cx, cy, text, fg, scale);
+      return;
+    }
+
+  for (cursor = text; cursor[0] != '\0'; )
+    {
+      uint32_t codepoint;
+      int bytes = velafit_utf8_decode(cursor, &codepoint);
+      int advance;
+
+      if (bytes <= 0)
+        {
+          break;
+        }
+
+      advance = velafit_utf8_advance(codepoint);
+      if (codepoint < 0x80)
+        {
+          advance = VF_UTF8_ASCII_ADV;
+        }
+      else if (advance == 0)
+        {
+          advance = VF_UTF8_CJK_ADV;
+        }
+
+      advance *= scale;
+      if (width + advance > max_width - 3 * VF_UTF8_ASCII_ADV * scale)
+        {
+          break;
+        }
+
+      if (used + (size_t)bytes >= sizeof(line) - 4)
+        {
+          break;
+        }
+
+      memcpy(line + used, cursor, (size_t)bytes);
+      used += (size_t)bytes;
+      width += advance;
+      cursor += bytes;
+    }
+
+  memcpy(line + used, "...", 3);
+  used += 3;
+  line[used] = '\0';
+  ui_draw_center_utf8(canvas, cx, cy, line, fg, scale);
 }
 
 static velafit_color_t ui_tone_color(velafit_ui_tone_t tone)
@@ -172,37 +203,27 @@ static void ui_draw_heart(velafit_canvas_t *canvas, int cx, int cy,
  * Private Page Parts
  ****************************************************************************/
 
-/* Top band: product title, pose status, permanent DEMO provenance tag. */
+/* Full-screen title strip. Only the pages that cover the whole 1024x600
+ * framebuffer (idle, advice) use it; the training and summary pages keep the
+ * live camera on the upper block instead. */
 
 static void ui_draw_status_band(velafit_canvas_t *canvas,
                                 const velafit_ui_snapshot_t *snapshot,
                                 const char *title)
 {
-  char line[VF_UI_STATUS_MAX_CHARS + 8];
-  velafit_color_t state_color;
-
   velafit_draw_rect_filled(canvas, VF_UI_STATUS_X0, 0,
                            VF_UI_STATUS_X1 - VF_UI_STATUS_X0, VF_UI_SCREEN_H,
                            VF_UI_PANEL);
   velafit_draw_line(canvas, VF_UI_STATUS_X1, 0, VF_UI_STATUS_X1,
                     VF_UI_SCREEN_H - 1, VF_UI_PANEL_EDGE, 2);
 
-  ui_copy_fit(line, sizeof(line), title, VF_UI_HINT_MAX_CHARS);
-  ui_draw_center(canvas, 28, 240, line, VF_UI_TEXT, VF_UI_PANEL,
-                 VF_UI_TITLE_SCALE);
-
-  if (snapshot->page == VELAFIT_UI_PAGE_TRAINING)
-    {
-      state_color = snapshot->tracking ? VF_UI_ACCENT : VF_UI_ERROR;
-      ui_draw_center(canvas, 28, 540,
-                     snapshot->tracking ? "TRACKING" : "NO POSE",
-                     state_color, VF_UI_PANEL, VF_UI_BODY_SCALE);
-    }
+  ui_draw_fit_utf8(canvas, 28, 300, title, VF_UI_TEXT,
+                   VF_UI_TITLE_SCALE, VF_UI_SCREEN_H - 2 * VF_UI_GAP_S);
 
   if (snapshot->demo_data)
     {
-      ui_draw_center(canvas, 28, 44, "DEMO", VF_UI_WARN, VF_UI_PANEL,
-                     VF_UI_BODY_SCALE);
+      ui_draw_fit_utf8(canvas, 28, 44, "演示", VF_UI_WARN,
+                       VF_UI_BODY_SCALE, 120);
     }
 }
 
@@ -211,9 +232,7 @@ static void ui_draw_status_band(velafit_canvas_t *canvas,
 static void ui_draw_hint_band(velafit_canvas_t *canvas,
                               const char *hint, velafit_ui_tone_t tone)
 {
-  char line[VF_UI_HINT_MAX_CHARS + 8];
   velafit_color_t color = ui_tone_color(tone);
-  int width;
 
   velafit_draw_rect_filled(canvas, VF_UI_HINT_X0, 0,
                            VF_UI_HINT_X1 - VF_UI_HINT_X0, VF_UI_SCREEN_H,
@@ -226,65 +245,82 @@ static void ui_draw_hint_band(velafit_canvas_t *canvas,
       return;
     }
 
-  ui_copy_fit(line, sizeof(line), hint, VF_UI_HINT_MAX_CHARS);
-
-  /* Longest reserved hint must fit inside the band, never clip. */
-  width = ui_text_width(line, VF_UI_HINT_SCALE);
-  if (width > VF_UI_SCREEN_H - 2 * VF_UI_GAP_M)
-    {
-      ui_copy_fit(line, sizeof(line), hint,
-                  (size_t)((VF_UI_SCREEN_H - 2 * VF_UI_GAP_M) / 6));
-    }
-
-  ui_draw_center(canvas, (VF_UI_HINT_X0 + VF_UI_HINT_X1) / 2,
-                 VF_UI_SCREEN_H / 2, line, color, VF_UI_PANEL,
-                 VF_UI_HINT_SCALE);
+  /* Fits by display width, never by bytes, so Chinese hints keep whole glyphs. */
+  ui_draw_fit_utf8(canvas, (VF_UI_HINT_X0 + VF_UI_HINT_X1) / 2,
+                   VF_UI_SCREEN_H / 2, hint, color, VF_UI_HINT_SCALE,
+                   VF_UI_SCREEN_H - 2 * VF_UI_GAP_M);
 }
 
-/* Main count zone. The zone is fixed so 9 -> 10 -> 100 never moves anything. */
+/* Solid information block under the camera. It is one flat panel, so product
+ * copy never sits on top of video pixels. */
 
-static void ui_draw_count_zone(velafit_canvas_t *canvas,
-                               const velafit_ui_snapshot_t *snapshot)
+static void ui_draw_info_panel(velafit_canvas_t *canvas)
 {
-  char line[VF_UI_STATUS_MAX_CHARS + 8];
-  uint32_t scale;
-
   velafit_draw_rect_filled(canvas, VF_UI_COUNT_X0, VF_UI_COUNT_Y0,
                            VF_UI_COUNT_X1 - VF_UI_COUNT_X0,
                            VF_UI_COUNT_Y1 - VF_UI_COUNT_Y0, VF_UI_PANEL);
-  velafit_draw_rect(canvas, VF_UI_COUNT_X0, VF_UI_COUNT_Y0,
-                    VF_UI_COUNT_X1 - VF_UI_COUNT_X0,
-                    VF_UI_COUNT_Y1 - VF_UI_COUNT_Y0, VF_UI_PANEL_EDGE);
+  velafit_draw_line(canvas, VF_UI_COUNT_X0, VF_UI_COUNT_Y0,
+                    VF_UI_COUNT_X0, VF_UI_COUNT_Y1 - 1,
+                    VF_UI_PANEL_EDGE, 2);
+}
 
-  ui_draw_center(canvas, 588, 300, "REPS", VF_UI_TEXT_DIM, VF_UI_PANEL,
-                 VF_UI_BODY_SCALE);
+/* Main count zone. The zone is fixed so 9 -> 10 -> 100 never moves anything.
+ * Rows (framebuffer X, band 600..900): title 632, number 706, target 768,
+ * state 806, duration 844; the vitals row (heart + label) sits at 878 across
+ * framebuffer Y 300..520. */
+
+static void ui_draw_count_zone(velafit_canvas_t *canvas,
+                               const velafit_ui_snapshot_t *snapshot,
+                               const char *title)
+{
+  char line[48];
+  uint32_t scale;
+
+  ui_draw_info_panel(canvas);
+
+  ui_draw_fit_utf8(canvas, 632, 300, title, VF_UI_TEXT, VF_UI_TITLE_SCALE,
+                   VF_UI_SCREEN_H - 2 * VF_UI_GAP_M);
+
+  if (snapshot->page == VELAFIT_UI_PAGE_TRAINING)
+    {
+      ui_draw_fit_utf8(canvas, 806, 300,
+                       snapshot->tracking ? "追踪中" : "未检测",
+                       snapshot->tracking ? VF_UI_ACCENT : VF_UI_ERROR,
+                       VF_UI_BODY_SCALE, 480);
+    }
+
+  if (snapshot->demo_data)
+    {
+      ui_draw_fit_utf8(canvas, 632, 44, "演示", VF_UI_WARN,
+                       VF_UI_BODY_SCALE, 112);
+    }
 
   if (snapshot->countdown)
     {
       snprintf(line, sizeof(line), "%lu",
                (unsigned long)snapshot->countdown_number);
-      ui_draw_center(canvas, 650, 300, line, VF_UI_WARN, VF_UI_PANEL,
+      ui_draw_center(canvas, 706, 300, line, VF_UI_WARN, VF_UI_PANEL,
                      VF_UI_COUNTDOWN_SCALE);
     }
   else
     {
       scale = ui_count_scale(snapshot->reps);
       snprintf(line, sizeof(line), "%lu", (unsigned long)snapshot->reps);
-      ui_draw_center(canvas, 650, 300, line,
+      ui_draw_center(canvas, 706, 300, line,
                      snapshot->tracking ? VF_UI_TEXT : VF_UI_TEXT_DIM,
                      VF_UI_PANEL, (int)scale);
+      ui_draw_fit_utf8(canvas, 706, 400, "次数", VF_UI_TEXT_DIM,
+                       VF_UI_BODY_SCALE, 112);
     }
 
-  snprintf(line, sizeof(line), "TARGET %lu", (unsigned long)snapshot->target);
-  ui_draw_center(canvas, 742, 300, line, VF_UI_TEXT_DIM, VF_UI_PANEL,
-                 VF_UI_TITLE_SCALE);
+  snprintf(line, sizeof(line), "目标 %lu 次", (unsigned long)snapshot->target);
+  ui_draw_fit_utf8(canvas, 768, 300, line, VF_UI_TEXT_DIM,
+                   VF_UI_BODY_SCALE, 480);
 
   if (snapshot->state_label != NULL && snapshot->state_label[0] != '\0')
     {
-      ui_copy_fit(line, sizeof(line), snapshot->state_label,
-                  VF_UI_STATUS_MAX_CHARS);
-      ui_draw_center(canvas, 815, 300, line, VF_UI_ACCENT, VF_UI_PANEL,
-                     VF_UI_BODY_SCALE);
+      ui_draw_fit_utf8(canvas, 806, 300, snapshot->state_label, VF_UI_ACCENT,
+                       VF_UI_BODY_SCALE, 480);
     }
 
   /* Live duration while the set is running; hidden when it is not measured. */
@@ -293,7 +329,7 @@ static void ui_draw_count_zone(velafit_canvas_t *canvas,
       snprintf(line, sizeof(line), "%02lu:%02lu",
                (unsigned long)(snapshot->elapsed_sec / 60),
                (unsigned long)(snapshot->elapsed_sec % 60));
-      ui_draw_center(canvas, 858, 300, line, VF_UI_TEXT_DIM, VF_UI_PANEL,
+      ui_draw_center(canvas, 844, 300, line, VF_UI_TEXT_DIM, VF_UI_PANEL,
                      VF_UI_BODY_SCALE);
     }
 
@@ -312,19 +348,18 @@ static void ui_draw_count_zone(velafit_canvas_t *canvas,
           beat = 1;
         }
 
-      ui_draw_heart(canvas, 584, 160, 3 + beat, VF_UI_HEART);
+      ui_draw_heart(canvas, 878, 470, 3 + beat, VF_UI_HEART);
     }
 
   /* UI demo only: the simulated rate stays permanently labelled next to the
-   * number (and the band keeps its DEMO tag). Nothing consumes this value. */
+   * number (and the page keeps its DEMO tag). Nothing consumes this value. */
 
   if (snapshot->sim_hr_valid && snapshot->demo_data)
     {
-      ui_draw_center(canvas, 616, 160, "SIM HR", VF_UI_WARN, VF_UI_PANEL,
-                     VF_UI_BODY_SCALE);
-      snprintf(line, sizeof(line), "%lu",
+      snprintf(line, sizeof(line), "模拟心率 %lu",
                (unsigned long)snapshot->sim_hr_bpm);
-      ui_draw_center(canvas, 662, 160, line, VF_UI_WARN, VF_UI_PANEL, 4);
+      ui_draw_fit_utf8(canvas, 878, 300, line, VF_UI_WARN,
+                       VF_UI_BODY_SCALE, 300);
     }
 }
 
@@ -338,73 +373,78 @@ static void ui_page_idle(velafit_canvas_t *canvas,
   velafit_ui_paint_background(canvas);
   ui_draw_status_band(canvas, snapshot, "VELAFIT");
 
-  ui_draw_center(canvas, 330, 300, "SQUAT", VF_UI_ACCENT, VF_UI_BG,
-                 VF_UI_COUNTDOWN_SCALE);
-  ui_draw_center(canvas, 440, 300, "TRAINING", VF_UI_TEXT, VF_UI_BG,
-                 VF_UI_TITLE_SCALE);
-  ui_draw_center(canvas, 500, 300, "PRESS START", VF_UI_TEXT_DIM, VF_UI_BG,
-                 VF_UI_TITLE_SCALE);
+  ui_draw_fit_utf8(canvas, 330, 300, "深蹲训练", VF_UI_ACCENT,
+                   VF_UI_COUNTDOWN_SCALE, 520);
+  ui_draw_fit_utf8(canvas, 440, 300, "按开始键进入", VF_UI_TEXT,
+                   VF_UI_TITLE_SCALE, 520);
+  ui_draw_fit_utf8(canvas, 500, 300, "站在镜头前即可", VF_UI_TEXT_DIM,
+                   VF_UI_TITLE_SCALE, 520);
 
   ui_draw_hint_band(canvas, snapshot->hint ? snapshot->hint :
-                    "READY WHEN YOU ARE", snapshot->hint_tone);
+                    "准备好了就开始", snapshot->hint_tone);
 }
 
 static void ui_page_training(velafit_canvas_t *canvas,
                              const velafit_ui_snapshot_t *snapshot)
 {
-  ui_draw_status_band(canvas, snapshot,
-                      snapshot->title ? snapshot->title : "VELAFIT SQUAT");
-  ui_draw_count_zone(canvas, snapshot);
+  /* The camera keeps the upper block; only the information block is repainted.
+   * The page never clears the canvas, otherwise the live video would vanish. */
+  ui_draw_count_zone(canvas, snapshot,
+                     snapshot->title ? snapshot->title : "深蹲训练");
   ui_draw_hint_band(canvas, snapshot->hint, snapshot->hint_tone);
 }
 
 static void ui_page_summary(velafit_canvas_t *canvas,
                             const velafit_ui_snapshot_t *snapshot)
 {
-  char line[40];
+  char line[64];
 
-  velafit_ui_paint_background(canvas);
-  ui_draw_status_band(canvas, snapshot, "WORKOUT SUMMARY");
+  ui_draw_info_panel(canvas);
 
-  ui_draw_center(canvas, 240, 300, "REPS", VF_UI_TEXT_DIM, VF_UI_BG,
-                 VF_UI_BODY_SCALE);
+  ui_draw_fit_utf8(canvas, 632, 300,
+                   snapshot->title ? snapshot->title : "训练总结",
+                   VF_UI_TEXT, VF_UI_TITLE_SCALE,
+                   VF_UI_SCREEN_H - 2 * VF_UI_GAP_M);
+
   snprintf(line, sizeof(line), "%lu", (unsigned long)snapshot->reps);
-  ui_draw_center(canvas, 330, 300, line, VF_UI_TEXT, VF_UI_BG,
+  ui_draw_center(canvas, 706, 300, line, VF_UI_TEXT, VF_UI_PANEL,
                  VF_UI_SUMMARY_SCALE);
+  ui_draw_fit_utf8(canvas, 706, 400, "次数", VF_UI_TEXT_DIM,
+                   VF_UI_BODY_SCALE, 112);
 
-  snprintf(line, sizeof(line), "TARGET %lu", (unsigned long)snapshot->target);
-  ui_draw_center(canvas, 430, 300, line, VF_UI_TEXT, VF_UI_BG,
-                 VF_UI_TITLE_SCALE);
+  snprintf(line, sizeof(line), "目标 %lu 次", (unsigned long)snapshot->target);
+  ui_draw_fit_utf8(canvas, 768, 300, line, VF_UI_TEXT,
+                   VF_UI_BODY_SCALE, 480);
 
   if (snapshot->elapsed_valid)
     {
-      snprintf(line, sizeof(line), "DURATION %02lu:%02lu",
+      snprintf(line, sizeof(line), "时长 %02lu:%02lu",
                (unsigned long)(snapshot->elapsed_sec / 60),
                (unsigned long)(snapshot->elapsed_sec % 60));
-      ui_draw_center(canvas, 490, 300, line, VF_UI_TEXT, VF_UI_BG,
-                     VF_UI_TITLE_SCALE);
+      ui_draw_fit_utf8(canvas, 806, 300, line, VF_UI_TEXT,
+                       VF_UI_BODY_SCALE, 480);
     }
 
   /* Fields that were not reliably produced stay hidden, never shown as 0. */
   if (snapshot->good_valid)
     {
-      snprintf(line, sizeof(line), "GOOD %lu",
+      snprintf(line, sizeof(line), "标准 %lu 次",
                (unsigned long)snapshot->good_reps);
-      ui_draw_center(canvas, 545, 300, line, VF_UI_ACCENT, VF_UI_BG,
-                     VF_UI_TITLE_SCALE);
+      ui_draw_fit_utf8(canvas, 844, 180, line, VF_UI_ACCENT,
+                       VF_UI_BODY_SCALE, 260);
     }
 
   if (snapshot->warn_valid)
     {
-      snprintf(line, sizeof(line), "FORM WARN %lu",
+      snprintf(line, sizeof(line), "姿势警告 %lu 次",
                (unsigned long)snapshot->warn_reps);
-      ui_draw_center(canvas, 595, 300, line,
-                     snapshot->warn_reps > 0 ? VF_UI_WARN : VF_UI_TEXT_DIM,
-                     VF_UI_BG, VF_UI_BODY_SCALE);
+      ui_draw_fit_utf8(canvas, 844, snapshot->good_valid ? 440 : 300, line,
+                       snapshot->warn_reps > 0 ? VF_UI_WARN : VF_UI_TEXT_DIM,
+                       VF_UI_BODY_SCALE, 280);
     }
 
   ui_draw_hint_band(canvas, snapshot->hint ? snapshot->hint :
-                    "START AGAIN WHEN READY", snapshot->hint_tone);
+                    "准备好后重新开始", snapshot->hint_tone);
 }
 
 /* The device font is ASCII only for 5x7 text. Real coach advice arrives as
@@ -601,7 +641,7 @@ static void ui_page_advice(velafit_canvas_t *canvas,
 
   velafit_ui_paint_background(canvas);
   ui_draw_status_band(canvas, snapshot,
-                      snapshot->title ? snapshot->title : "COACH ADVICE");
+                      snapshot->title ? snapshot->title : "教练建议");
 
   if (snapshot->advice != NULL && ui_text_has_cjk(snapshot->advice))
     {
@@ -663,8 +703,8 @@ static void ui_page_advice(velafit_canvas_t *canvas,
 
   if (snapshot->advice == NULL || snapshot->advice[0] == '\0')
     {
-      ui_draw_center(canvas, 300, 300, "NO ADVICE YET", VF_UI_TEXT_DIM,
-                     VF_UI_BG, VF_UI_TITLE_SCALE);
+      ui_draw_fit_utf8(canvas, 300, 300, "暂无建议", VF_UI_TEXT_DIM,
+                       VF_UI_TITLE_SCALE, VF_UI_SCREEN_H - 2 * VF_UI_GAP_M);
     }
 
   ui_draw_hint_band(canvas, snapshot->advice_status, snapshot->hint_tone);

@@ -188,18 +188,18 @@ static int coach_lcd_begin(const struct velafit_workout_summary_s *s,
   if (advice != NULL && advice[0] != '\0')
     {
       snap.page = VELAFIT_UI_PAGE_ADVICE;
-      snap.title = "COACH ADVICE";
+      snap.title = "教练建议";
       snap.advice = advice;
       snap.advice_status = (status != NULL && status[0] != '\0') ?
-                           status : "VOICE PLAYING";
+                           status : "语音播放中";
       snap.hint = snap.advice_status;
     }
   else
     {
       snap.page = VELAFIT_UI_PAGE_SUMMARY;
-      snap.title = "WORKOUT SUMMARY";
+      snap.title = "训练总结";
       snap.hint = (status != NULL && status[0] != '\0') ? status :
-                  "AI SERVICE UNAVAILABLE";
+                  "AI 服务不可用";
     }
 
   velafit_canvas_init(&canvas, pinfo.fbmem, vinfo.xres, vinfo.yres,
@@ -234,11 +234,11 @@ int velafit_coach_run(const char *api_key,
   printf("[VELAFIT] COACH_HEAP phase=before used=%u free=%u largest=%u\n",
          heap_before.uordblks, heap_before.fordblks, heap_before.mxordblk);
   printf("[VELAFIT] FINISHED -> AI_ANALYSIS\n");
-  coach_lcd_begin(summary, "THINKING...", NULL);
+  coach_lcd_begin(summary, "正在分析...", NULL);
   payload = coach_request_json(summary);
   if (payload == NULL)
     {
-      coach_lcd_begin(summary, "AI SERVICE UNAVAILABLE", NULL);
+      coach_lcd_begin(summary, "AI 服务不可用", NULL);
       coach_log_idle_heap(heap_before);
       return -ENOMEM;
     }
@@ -248,7 +248,7 @@ int velafit_coach_run(const char *api_key,
   result->advice_latency_ms = advice.elapsed_ms;
   if (ret < 0)
     {
-      coach_lcd_begin(summary, "AI SERVICE UNAVAILABLE", NULL);
+      coach_lcd_begin(summary, "AI 服务不可用", NULL);
       printf("[VELAFIT] AI_ANALYSIS_FAIL http=%d ret=%d\n",
              advice.http_status, ret);
       coach_log_idle_heap(heap_before);
@@ -257,7 +257,7 @@ int velafit_coach_run(const char *api_key,
   size_t length = strlen(advice.content);
   if (length == 0)
     {
-      coach_lcd_begin(summary, "AI SERVICE UNAVAILABLE", NULL);
+      coach_lcd_begin(summary, "AI 服务不可用", NULL);
       printf("[VELAFIT] AI_ANALYSIS_FAIL http=%d ret=%d reason=empty\n",
              advice.http_status, -EBADMSG);
       coach_log_idle_heap(heap_before);
@@ -271,7 +271,7 @@ int velafit_coach_run(const char *api_key,
          result->http_status, result->advice_latency_ms,
          (unsigned long)result->advice_bytes);
   printf("[VELAFIT] AI advice: %s\n", result->advice);
-  coach_lcd_begin(summary, "VOICE PLAYING", result->advice);
+  coach_lcd_begin(summary, "语音播放中", result->advice);
 
   printf("[VELAFIT] AI_RESULT -> AI_PLAYBACK\n");
   ret = velafit_pcm_stream_start(&player, 24000);
