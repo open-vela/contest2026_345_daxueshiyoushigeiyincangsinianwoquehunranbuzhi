@@ -1,0 +1,532 @@
+diff --git a/graphics/lvgl/Kconfig b/graphics/lvgl/Kconfig
+index 916b38f7d..7135f823d 100644
+--- a/graphics/lvgl/Kconfig
++++ b/graphics/lvgl/Kconfig
+@@ -25,6 +25,6 @@ config LV_GPU_G2D_INCLUDE_PATH
+ 	depends on LV_USE_DRAW_G2D
+ 	default ""
+ 
+-osource "$APPSDIR/graphics/lvgl/lvgl/Kconfig"
++source "$APPSDIR/graphics/lvgl/lvgl/Kconfig"
+ 
+ endif # GRAPHICS_LVGL
+diff --git a/graphics/lvgl/Makefile b/graphics/lvgl/Makefile
+index c2f34d983..8ba647f07 100644
+--- a/graphics/lvgl/Makefile
++++ b/graphics/lvgl/Makefile
+@@ -78,6 +78,11 @@ CFLAGS += "-DLV_PROFILER_BEGIN_TAG(str)=sched_note_beginex(NOTE_TAG_GRAPHICS, st
+ CFLAGS += "-DLV_PROFILER_END_TAG(str)=sched_note_endex(NOTE_TAG_GRAPHICS, str)"
+ endif
+ 
++ifeq ($(CONFIG_LV_USE_NUTTX),y)
++CFLAGS += -DLV_USE_NUTTX=1
++CXXFLAGS += -DLV_USE_NUTTX=1
++endif
++
+ ifneq ($(CONFIG_LV_OPTLEVEL), "")
+ # Since multiple options need to be supported, subst needs to be used here to remove
+ # the redundant double quotes, otherwise it will cause command parsing errors.
+diff --git a/mlearning/tflite-micro/CMakeLists.txt b/mlearning/tflite-micro/CMakeLists.txt
+index 37dfff84d..5de839963 100644
+--- a/mlearning/tflite-micro/CMakeLists.txt
++++ b/mlearning/tflite-micro/CMakeLists.txt
+@@ -289,4 +289,33 @@ if(CONFIG_TFLITEMICRO)
+     add_subdirectory(tflite-micro/tensorflow/lite/micro/tools/benchmarking)
+   endif()
+ 
++  if(CONFIG_VELAFIT_TFLM_RUNNER)
++    set(VELAFIT_RUNNER_MODEL "${CONFIG_VELAFIT_TFLM_RUNNER_MODEL_PATH}")
++    if(DEFINED ENV{VELAFIT_MODEL_PATH})
++      set(VELAFIT_RUNNER_MODEL "$ENV{VELAFIT_MODEL_PATH}")
++    endif()
++    if(NOT EXISTS "${VELAFIT_RUNNER_MODEL}")
++      message(FATAL_ERROR
++              "MoveNet model not found: ${VELAFIT_RUNNER_MODEL}")
++    endif()
++
++    nuttx_add_application(
++      NAME
++      velafit_tflm_runner
++      STACKSIZE
++      ${CONFIG_VELAFIT_TFLM_RUNNER_STACKSIZE}
++      PRIORITY
++      SCHED_PRIORITY_DEFAULT
++      SRCS
++      tflm_no_profiler_runner.cc
++      tflm_model_data.S
++      DEPENDS
++      tflite_micro)
++
++    target_include_directories(apps_velafit_tflm_runner PRIVATE ${INCDIR})
++    target_compile_options(apps_velafit_tflm_runner PRIVATE ${COMMON_FLAGS})
++    target_compile_definitions(apps_velafit_tflm_runner PRIVATE
++      VELAFIT_MODEL_BUILD_PATH="${VELAFIT_RUNNER_MODEL}")
++  endif()
++
+ endif()
+diff --git a/mlearning/tflite-micro/Kconfig b/mlearning/tflite-micro/Kconfig
+index c7326aaa2..6a307cded 100644
+--- a/mlearning/tflite-micro/Kconfig
++++ b/mlearning/tflite-micro/Kconfig
+@@ -44,6 +44,31 @@ if TFLITEMICRO
+ 	bool "tflite-micro benchmarking tool"
+ 	default n
+ 
++	config VELAFIT_TFLM_RUNNER
++	bool "VelaFit no-profiler MoveNet runner"
++	default n
++	---help---
++		Build a deterministic MoveNet runner that uses MicroInterpreter without
++		MicroProfiler.  It validates the model/tensor contract, executes one to
++		1000 invokes, checks finite bounded output and detects output drift.
++
++if VELAFIT_TFLM_RUNNER
++	config VELAFIT_TFLM_RUNNER_STACKSIZE
++	int "VelaFit runner stack size"
++	default 32768
++
++	config VELAFIT_TFLM_RUNNER_ARENA_SIZE
++	int "VelaFit runner tensor arena size"
++	default 3145728
++
++	config VELAFIT_TFLM_RUNNER_MODEL_PATH
++	string "MoveNet TFLite model path"
++	default "/tmp/movenet_singlepose_lightning_int8_v4.tflite"
++	---help---
++		Build-host path to the Apache-2.0 MoveNet SinglePose Lightning INT8 v4
++		model.  The expected SHA-256 is documented by the VelaFit project.
++endif
++
+ if TFLITEMICRO_TOOL
+ 	config TFLITEMICRO_TOOL_PRIORITY
+ 	int "tflite-micro tool priority"
+diff --git a/mlearning/tflite-micro/Makefile b/mlearning/tflite-micro/Makefile
+index dbe1c7b30..2e150db7b 100644
+--- a/mlearning/tflite-micro/Makefile
++++ b/mlearning/tflite-micro/Makefile
+@@ -59,8 +59,10 @@ ifneq ($(CONFIG_TFLITEMICRO_DEBUG),)
+ COMMON_FLAGS += -DTF_LITE_SHOW_MEMORY_USE
+ COMMON_FLAGS += -DTF_LITE_USE_CTIME
+ else
++ifeq ($(CONFIG_VELAFIT_TFLM_RUNNER),)
+ COMMON_FLAGS += -DTF_LITE_STRIP_ERROR_STRINGS
+ endif
++endif
+ 
+ # tflite micro
+ CXXSRCS += $(wildcard $(TFLM_DIR)/tensorflow/lite/c/*.cc)
+@@ -110,7 +112,25 @@ PRIORITY  = $(CONFIG_TFLITEMICRO_TOOL_PRIORITY)
+ STACKSIZE = $(CONFIG_TFLITEMICRO_TOOL_STACKSIZE)
+ endif
+ 
++ifneq ($(CONFIG_VELAFIT_TFLM_RUNNER),)
++MAINSRC   = tflm_no_profiler_runner.cc
++ASRCS    += tflm_model_data.S
++ifneq ($(VELAFIT_MODEL_PATH),)
++AFLAGS += -DVELAFIT_MODEL_BUILD_PATH=\"$(VELAFIT_MODEL_PATH)\"
++endif
++PROGNAME  = velafit_tflm_runner
++PRIORITY  = SCHED_PRIORITY_DEFAULT
++STACKSIZE = $(CONFIG_VELAFIT_TFLM_RUNNER_STACKSIZE)
++endif
++
+ CFLAGS   += ${COMMON_FLAGS}
+ CXXFLAGS += ${COMMON_FLAGS}
+ 
+ include $(APPDIR)/Application.mk
++
++# .incbin inputs and their environment-selected paths are not visible to the
++# C preprocessor dependency scanner. Re-embed on every delivery invocation.
++ifneq ($(CONFIG_VELAFIT_TFLM_RUNNER),)
++.PHONY: velafit_model_reembed
++$(CAOBJS): velafit_model_reembed
++endif
+diff --git a/mlearning/tflite-micro/tflm_model_data.S b/mlearning/tflite-micro/tflm_model_data.S
+new file mode 100644
+index 000000000..6d11aa405
+--- /dev/null
++++ b/mlearning/tflite-micro/tflm_model_data.S
+@@ -0,0 +1,28 @@
++/****************************************************************************
++ * apps/mlearning/tflite-micro/tflm_model_data.S
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ ****************************************************************************/
++
++#include <nuttx/config.h>
++#ifndef VELAFIT_MODEL_BUILD_PATH
++#define VELAFIT_MODEL_BUILD_PATH CONFIG_VELAFIT_TFLM_RUNNER_MODEL_PATH
++#endif
++
++  .section .rodata.velafit_movenet,"a",@progbits
++  .balign 16
++  .global g_movenet_singlepose_lightning_int8_v4_model_data
++  .type g_movenet_singlepose_lightning_int8_v4_model_data, @object
++g_movenet_singlepose_lightning_int8_v4_model_data:
++  .incbin VELAFIT_MODEL_BUILD_PATH
++.Lmovenet_model_end:
++  .size g_movenet_singlepose_lightning_int8_v4_model_data, \
++        .Lmovenet_model_end - g_movenet_singlepose_lightning_int8_v4_model_data
++
++  .balign 4
++  .global g_movenet_singlepose_lightning_int8_v4_model_data_size
++  .type g_movenet_singlepose_lightning_int8_v4_model_data_size, @object
++g_movenet_singlepose_lightning_int8_v4_model_data_size:
++  .long .Lmovenet_model_end - \
++        g_movenet_singlepose_lightning_int8_v4_model_data
++  .size g_movenet_singlepose_lightning_int8_v4_model_data_size, 4
+diff --git a/mlearning/tflite-micro/tflm_model_data.h b/mlearning/tflite-micro/tflm_model_data.h
+new file mode 100644
+index 000000000..46a3d1fe5
+--- /dev/null
++++ b/mlearning/tflite-micro/tflm_model_data.h
+@@ -0,0 +1,15 @@
++/****************************************************************************
++ * apps/mlearning/tflite-micro/tflm_model_data.h
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ ****************************************************************************/
++
++#ifndef __APPS_MLEARNING_TFLITE_MICRO_TFLM_MODEL_DATA_H
++#define __APPS_MLEARNING_TFLITE_MICRO_TFLM_MODEL_DATA_H
++
++extern const unsigned char
++  g_movenet_singlepose_lightning_int8_v4_model_data[];
++extern const unsigned int
++  g_movenet_singlepose_lightning_int8_v4_model_data_size;
++
++#endif
+diff --git a/mlearning/tflite-micro/tflm_no_profiler_runner.cc b/mlearning/tflite-micro/tflm_no_profiler_runner.cc
+new file mode 100644
+index 000000000..343247c40
+--- /dev/null
++++ b/mlearning/tflite-micro/tflm_no_profiler_runner.cc
+@@ -0,0 +1,328 @@
++/****************************************************************************
++ * apps/mlearning/tflite-micro/tflm_no_profiler_runner.cc
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ ****************************************************************************/
++
++#include <nuttx/config.h>
++
++#include <cmath>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <ctime>
++#include <malloc.h>
++
++#include "tensorflow/lite/micro/micro_interpreter.h"
++#include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
++#include "tensorflow/lite/schema/schema_generated.h"
++
++#include "tflm_model_data.h"
++
++namespace
++{
++
++constexpr int kExpectedInputDims[] = {1, 192, 192, 3};
++constexpr int kExpectedOutputDims[] = {1, 1, 17, 3};
++constexpr unsigned int kOpCount = 19;
++
++uint64_t monotonic_us()
++{
++  struct timespec ts;
++
++  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
++    {
++      return 0;
++    }
++
++  return static_cast<uint64_t>(ts.tv_sec) * 1000000ull +
++         static_cast<uint64_t>(ts.tv_nsec) / 1000ull;
++}
++
++uint32_t crc32(const uint8_t *data, size_t len)
++{
++  uint32_t crc = UINT32_MAX;
++
++  for (size_t i = 0; i < len; ++i)
++    {
++      crc ^= data[i];
++      for (unsigned int bit = 0; bit < 8; ++bit)
++        {
++          crc = (crc >> 1) ^ (0xedb88320u &
++                              static_cast<uint32_t>(-
++                                static_cast<int32_t>(crc & 1u)));
++        }
++    }
++
++  return ~crc;
++}
++
++void fill_deterministic_input(TfLiteTensor *input)
++{
++  for (size_t i = 0; i < input->bytes; ++i)
++    {
++      input->data.uint8[i] = static_cast<uint8_t>((i * 131u + 17u) & 0xffu);
++    }
++}
++
++bool tensor_shape_is(const TfLiteTensor *tensor, const int *expected,
++                     size_t count)
++{
++  if (tensor == nullptr || tensor->dims == nullptr ||
++      tensor->dims->size != static_cast<int>(count))
++    {
++      return false;
++    }
++
++  for (size_t i = 0; i < count; ++i)
++    {
++      if (tensor->dims->data[i] != expected[i])
++        {
++          return false;
++        }
++    }
++
++  return true;
++}
++
++TfLiteStatus register_movenet_ops(
++  tflite::MicroMutableOpResolver<kOpCount> &resolver)
++{
++#define ADD_OP(method)                         \
++  do                                           \
++    {                                          \
++      if (resolver.method() != kTfLiteOk)       \
++        {                                      \
++          return kTfLiteError;                 \
++        }                                      \
++    }                                          \
++  while (0)
++
++  ADD_OP(AddAdd);
++  ADD_OP(AddArgMax);
++  ADD_OP(AddCast);
++  ADD_OP(AddConcatenation);
++  ADD_OP(AddConv2D);
++  ADD_OP(AddDepthwiseConv2D);
++  ADD_OP(AddDequantize);
++  ADD_OP(AddDiv);
++  ADD_OP(AddFloorDiv);
++  ADD_OP(AddGatherNd);
++  ADD_OP(AddLogistic);
++  ADD_OP(AddMul);
++  ADD_OP(AddPack);
++  ADD_OP(AddQuantize);
++  ADD_OP(AddReshape);
++  ADD_OP(AddResizeBilinear);
++  ADD_OP(AddSqrt);
++  ADD_OP(AddSub);
++  ADD_OP(AddUnpack);
++
++#undef ADD_OP
++  return kTfLiteOk;
++}
++
++bool validate_output(const TfLiteTensor *output)
++{
++  const size_t count = output->bytes / sizeof(float);
++  const float *values = output->data.f;
++
++  if (values == nullptr || count != 17u * 3u)
++    {
++      return false;
++    }
++
++  for (size_t i = 0; i < count; ++i)
++    {
++      if (!std::isfinite(values[i]) || values[i] < 0.0f || values[i] > 1.0f)
++        {
++          std::printf("[TFLM-RUNNER] invalid output[%zu]=%.9g\n",
++                      i, static_cast<double>(values[i]));
++          return false;
++        }
++    }
++
++  return true;
++}
++
++void print_usage(const char *program)
++{
++  std::printf("Usage: %s [runs]\n", program);
++  std::printf("  runs: 1..1000 (default 1)\n");
++}
++
++}  // namespace
++
++extern "C" int main(int argc, char *argv[])
++{
++  unsigned long runs = 1;
++  char *end = nullptr;
++
++  if (argc == 2)
++    {
++      runs = std::strtoul(argv[1], &end, 10);
++      if (end == argv[1] || *end != '\0' || runs < 1 || runs > 1000)
++        {
++          print_usage(argv[0]);
++          return EXIT_FAILURE;
++        }
++    }
++  else if (argc != 1)
++    {
++      print_usage(argv[0]);
++      return EXIT_FAILURE;
++    }
++
++  std::printf("[TFLM-RUNNER] backend=real profiler=disabled runs=%lu\n",
++              runs);
++  std::printf("[TFLM-RUNNER] model_bytes=%u arena_bytes=%u\n",
++              g_movenet_singlepose_lightning_int8_v4_model_data_size,
++              static_cast<unsigned int>(CONFIG_VELAFIT_TFLM_RUNNER_ARENA_SIZE));
++
++  const tflite::Model *model = tflite::GetModel(
++    g_movenet_singlepose_lightning_int8_v4_model_data);
++  if (model == nullptr || model->version() != TFLITE_SCHEMA_VERSION)
++    {
++      std::printf("[TFLM-RUNNER] FAIL schema model=%ld runtime=%d\n",
++                  static_cast<long>(model == nullptr ? -1 : model->version()),
++                  TFLITE_SCHEMA_VERSION);
++      return EXIT_FAILURE;
++    }
++
++  tflite::MicroMutableOpResolver<kOpCount> resolver;
++  if (register_movenet_ops(resolver) != kTfLiteOk)
++    {
++      std::printf("[TFLM-RUNNER] FAIL resolver\n");
++      return EXIT_FAILURE;
++    }
++
++  const struct mallinfo before = mallinfo();
++  void *arena_raw = memalign(16, CONFIG_VELAFIT_TFLM_RUNNER_ARENA_SIZE);
++  if (arena_raw == nullptr)
++    {
++      std::printf("[TFLM-RUNNER] FAIL arena allocation free=%d largest=%d\n",
++                  before.fordblks, before.mxordblk);
++      return EXIT_FAILURE;
++    }
++
++  auto *arena = static_cast<uint8_t *>(arena_raw);
++
++  /* Deliberately use the constructor without a profiler argument. */
++
++  tflite::MicroInterpreter interpreter(
++    model, resolver, arena, CONFIG_VELAFIT_TFLM_RUNNER_ARENA_SIZE);
++
++  const uint64_t allocate_start = monotonic_us();
++  const TfLiteStatus allocate_status = interpreter.AllocateTensors();
++  const uint64_t allocate_us = monotonic_us() - allocate_start;
++  if (allocate_status != kTfLiteOk)
++    {
++      std::printf("[TFLM-RUNNER] FAIL AllocateTensors status=%d us=%llu\n",
++                  allocate_status,
++                  static_cast<unsigned long long>(allocate_us));
++      free(arena_raw);
++      return EXIT_FAILURE;
++    }
++
++  TfLiteTensor *input = interpreter.input(0);
++  TfLiteTensor *output = interpreter.output(0);
++  if (input == nullptr || input->type != kTfLiteUInt8 ||
++      !tensor_shape_is(input, kExpectedInputDims,
++                       sizeof(kExpectedInputDims) / sizeof(int)) ||
++      output == nullptr || output->type != kTfLiteFloat32 ||
++      !tensor_shape_is(output, kExpectedOutputDims,
++                       sizeof(kExpectedOutputDims) / sizeof(int)))
++    {
++      std::printf("[TFLM-RUNNER] FAIL tensor contract\n");
++      free(arena_raw);
++      return EXIT_FAILURE;
++    }
++
++  fill_deterministic_input(input);
++
++  std::printf("[TFLM-RUNNER] allocate=PASS us=%llu input_bytes=%zu "
++              "output_bytes=%zu input_crc32=%08lx\n",
++              static_cast<unsigned long long>(allocate_us), input->bytes,
++              output->bytes,
++              static_cast<unsigned long>(crc32(input->data.uint8,
++                                                input->bytes)));
++
++  uint64_t total_us = 0;
++  uint64_t min_us = UINT64_MAX;
++  uint64_t max_us = 0;
++  uint32_t expected_crc = 0;
++
++  for (unsigned long i = 0; i < runs; ++i)
++    {
++      /* The arena planner may reuse an input tensor after its final consumer.
++       * Reload it before every invocation so repeated runs receive identical
++       * input data instead of scratch data left by the previous invocation.
++       */
++
++      fill_deterministic_input(input);
++      const uint64_t start = monotonic_us();
++      const TfLiteStatus status = interpreter.Invoke();
++      const uint64_t elapsed = monotonic_us() - start;
++
++      if (status != kTfLiteOk)
++        {
++          std::printf("[TFLM-RUNNER] FAIL invoke=%lu status=%d\n",
++                      i + 1, status);
++          free(arena_raw);
++          return EXIT_FAILURE;
++        }
++
++      if (!validate_output(output))
++        {
++          std::printf("[TFLM-RUNNER] FAIL output invoke=%lu\n", i + 1);
++          free(arena_raw);
++          return EXIT_FAILURE;
++        }
++
++      const uint32_t output_crc = crc32(
++        reinterpret_cast<const uint8_t *>(output->data.f), output->bytes);
++      if (i == 0)
++        {
++          expected_crc = output_crc;
++        }
++      else if (output_crc != expected_crc)
++        {
++          std::printf("[TFLM-RUNNER] FAIL output drift invoke=%lu "
++                      "expected=%08lx actual=%08lx\n",
++                      i + 1, static_cast<unsigned long>(expected_crc),
++                      static_cast<unsigned long>(output_crc));
++          free(arena_raw);
++          return EXIT_FAILURE;
++        }
++
++      total_us += elapsed;
++      if (elapsed < min_us)
++        {
++          min_us = elapsed;
++        }
++
++      if (elapsed > max_us)
++        {
++          max_us = elapsed;
++        }
++
++      if (runs >= 100 && ((i + 1) % 10) == 0)
++        {
++          std::printf("[TFLM-RUNNER] progress=%lu/%lu\n", i + 1, runs);
++        }
++    }
++
++  const struct mallinfo after = mallinfo();
++  std::printf("[TFLM-RUNNER] PASS runs=%lu failures=0 output_crc32=%08lx "
++              "min_us=%llu mean_us=%llu max_us=%llu heap_used_before=%d "
++              "heap_used_after=%d\n",
++              runs, static_cast<unsigned long>(expected_crc),
++              static_cast<unsigned long long>(min_us),
++              static_cast<unsigned long long>(total_us / runs),
++              static_cast<unsigned long long>(max_us), before.uordblks,
++              after.uordblks);
++
++  free(arena_raw);
++  return EXIT_SUCCESS;
++}
