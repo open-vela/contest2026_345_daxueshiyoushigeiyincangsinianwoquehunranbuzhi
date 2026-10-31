@@ -9,9 +9,9 @@ TEAM = Path(__file__).resolve().parents[2]
 SOURCE = TEAM.parent / 'apps/mlearning/tflite-micro/tflite-micro'
 PATCHES = {
     'tflm-movenet-integer-postprocess.patch':
-        '942556b4bbb17d737bfc3d12f96fabde9ca181a7ae3b6e10f60fd67e2b881b7e',
+        '68a632f337bd94a38fdd6305bd52f77cc85b9c88180a145451f8d2adf9fed4d5',
     'tflm-esp-nn-existing.patch':
-        '282508c461d390b9acc1eee445566af7d8400f8b29ad3deaecd3813555ebd584',
+        '2b4e7d2a655900bdfafb7d6d71f0a406458d5e1c8777115ad12eb5872f350208',
 }
 
 
