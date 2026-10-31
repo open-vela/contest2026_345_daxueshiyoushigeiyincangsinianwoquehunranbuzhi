@@ -642,8 +642,252 @@ void velafit_draw_string(velafit_canvas_t *canvas,
 }
 
 /****************************************************************************
- * Name: velafit_render_skeleton
+ * Name: velafit_utf8_decode
  ****************************************************************************/
+
+int velafit_utf8_decode(const char *text, uint32_t *codepoint)
+{
+  const unsigned char *s = (const unsigned char *)text;
+  uint32_t value;
+  int need;
+  int index;
+
+  if (text == NULL || codepoint == NULL || s[0] == '\0')
+    {
+      return 0;
+    }
+
+  if (s[0] < 0x80)
+    {
+      *codepoint = s[0];
+      return 1;
+    }
+
+  if ((s[0] & 0xe0) == 0xc0)
+    {
+      need = 2;
+      value = s[0] & 0x1f;
+    }
+  else if ((s[0] & 0xf0) == 0xe0)
+    {
+      need = 3;
+      value = s[0] & 0x0f;
+    }
+  else if ((s[0] & 0xf8) == 0xf0)
+    {
+      need = 4;
+      value = s[0] & 0x07;
+    }
+  else
+    {
+      *codepoint = 0xfffd;
+      return 1;
+    }
+
+  for (index = 1; index < need; index++)
+    {
+      if ((s[index] & 0xc0) != 0x80)
+        {
+          /* Truncated sequence: consume one byte, never split the next. */
+          *codepoint = 0xfffd;
+          return 1;
+        }
+
+      value = (value << 6) | (s[index] & 0x3f);
+    }
+
+  if (value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff))
+    {
+      *codepoint = 0xfffd;
+      return 1;
+    }
+
+  *codepoint = value;
+  return need;
+}
+
+int velafit_utf8_advance(uint32_t codepoint)
+{
+  if (codepoint == '\n' || codepoint == '\r')
+    {
+      return 0;
+    }
+
+  return codepoint < 0x80 ? VF_UTF8_ASCII_ADV : VF_UTF8_CJK_ADV;
+}
+
+int velafit_utf8_width(const char *text, int scale)
+{
+  uint32_t codepoint;
+  int bytes;
+  int width = 0;
+
+  if (text == NULL)
+    {
+      return 0;
+    }
+
+  while ((bytes = velafit_utf8_decode(text, &codepoint)) > 0)
+    {
+      width += velafit_utf8_advance(codepoint);
+      text += bytes;
+    }
+
+  return width * (scale > 0 ? scale : 1);
+}
+
+int velafit_utf8_missing(const char *text)
+{
+  uint32_t codepoint;
+  int bytes;
+  int missing = 0;
+
+  if (text == NULL)
+    {
+      return 0;
+    }
+
+  while ((bytes = velafit_utf8_decode(text, &codepoint)) > 0)
+    {
+      uint16_t rows[16];
+
+      if (codepoint >= 0x80 && codepoint != 0x3000 &&
+          !velafit_font_cjk_lookup(codepoint, rows))
+        {
+          ++missing;
+        }
+
+      text += bytes;
+    }
+
+  return missing;
+}
+
+/****************************************************************************
+ * Name: velafit_draw_utf8
+ *
+ * Rasterize one mixed ASCII/CJK line with the same CCW90 product rotation
+ * as velafit_draw_string. ASCII cells keep the 5x7 face, CJK cells use the
+ * 16x16 table; both share a 16-row cell so they stay on one baseline.
+ ****************************************************************************/
+
+void velafit_draw_utf8(velafit_canvas_t *canvas, int x, int y,
+                       const char *text, velafit_color_t fg, int scale)
+{
+  int source_width;
+  int source_height;
+  int rotated_x;
+  int rotated_y;
+  int pen;
+  uint32_t codepoint;
+  int bytes;
+
+  if (canvas == NULL || text == NULL || text[0] == '\0')
+    {
+      return;
+    }
+
+  if (scale <= 0)
+    {
+      scale = 1;
+    }
+
+  source_width = velafit_utf8_width(text, scale);
+  if (source_width <= 0)
+    {
+      return;
+    }
+
+  source_height = VF_UTF8_CELL_H * scale;
+  rotated_x = x + (source_width - source_height) / 2;
+  rotated_y = y + (source_height - source_width) / 2;
+  if (rotated_x < 2) rotated_x = 2;
+  if (rotated_y < 2) rotated_y = 2;
+  if (rotated_x + source_height > (int)canvas->width - 2)
+    {
+      rotated_x = (int)canvas->width - source_height - 2;
+    }
+
+  if (rotated_y + source_width > (int)canvas->height - 2)
+    {
+      rotated_y = (int)canvas->height - source_width - 2;
+    }
+
+  if (rotated_x < 2) rotated_x = 2;
+  if (rotated_y < 2) rotated_y = 2;
+
+  pen = 0;
+  while ((bytes = velafit_utf8_decode(text, &codepoint)) > 0)
+    {
+      int advance = velafit_utf8_advance(codepoint);
+
+      text += bytes;
+      if (advance == 0)
+        {
+          continue;
+        }
+
+      if (codepoint >= 0x20 && codepoint <= 0x7e)
+        {
+          int font_index = (int)codepoint - 32;
+          int row_offset = (VF_UTF8_CELL_H - 7) / 2;
+
+          for (int col = 0; col < 5; col++)
+            {
+              uint8_t bits = g_font5x7[font_index][col];
+
+              for (int row = 0; row < 7; row++)
+                {
+                  if ((bits & (1 << row)) == 0) continue;
+
+                  for (int sx = 0; sx < scale; sx++)
+                    for (int sy = 0; sy < scale; sy++)
+                      {
+                        int source_x = (pen + col) * scale + sx;
+                        int source_y = (row_offset + row) * scale + sy;
+
+                        velafit_draw_pixel(canvas,
+                                           rotated_x + source_y,
+                                           rotated_y + source_width - 1 -
+                                           source_x, fg);
+                      }
+                }
+            }
+        }
+      else if (codepoint >= 0x80)
+        {
+          uint16_t rows[16];
+          bool found = velafit_font_cjk_lookup(codepoint, rows);
+
+          for (int row = 0; row < VF_UTF8_CELL_H; row++)
+            {
+              for (int col = 0; col < VF_UTF8_CELL_H; col++)
+                {
+                  bool lit = found ? ((rows[row] & (1 << (15 - col))) != 0) :
+                             ((row == 0 || row == VF_UTF8_CELL_H - 1 ||
+                               col == 0 || col == VF_UTF8_CELL_H - 1));
+
+                  if (!lit) continue;
+
+                  for (int sx = 0; sx < scale; sx++)
+                    for (int sy = 0; sy < scale; sy++)
+                      {
+                        int source_x = (pen + col) * scale + sx;
+                        int source_y = row * scale + sy;
+
+                        velafit_draw_pixel(canvas,
+                                           rotated_x + source_y,
+                                           rotated_y + source_width - 1 -
+                                           source_x, fg);
+                      }
+                }
+            }
+        }
+
+      pen += advance;
+    }
+}
+
 
 #include "../../sc2336_probe/sc2336_transform.h"
 

@@ -322,12 +322,206 @@ static void ui_page_summary(velafit_canvas_t *canvas,
     {
       snprintf(line, sizeof(line), "GOOD %lu",
                (unsigned long)snapshot->good_reps);
-      ui_draw_center(canvas, 550, 300, line, VF_UI_ACCENT, VF_UI_BG,
+      ui_draw_center(canvas, 545, 300, line, VF_UI_ACCENT, VF_UI_BG,
                      VF_UI_TITLE_SCALE);
+    }
+
+  if (snapshot->warn_valid)
+    {
+      snprintf(line, sizeof(line), "FORM WARN %lu",
+               (unsigned long)snapshot->warn_reps);
+      ui_draw_center(canvas, 595, 300, line,
+                     snapshot->warn_reps > 0 ? VF_UI_WARN : VF_UI_TEXT_DIM,
+                     VF_UI_BG, VF_UI_BODY_SCALE);
     }
 
   ui_draw_hint_band(canvas, snapshot->hint ? snapshot->hint :
                     "START AGAIN WHEN READY", snapshot->hint_tone);
+}
+
+/* The device font is ASCII only for 5x7 text. Real coach advice arrives as
+ * Chinese UTF-8; that path goes through the 16x16 table and must wrap by
+ * display width, never by bytes. */
+
+static bool ui_text_has_cjk(const char *text)
+{
+  if (text == NULL)
+    {
+      return false;
+    }
+
+  for (; text[0] != '\0'; text++)
+    {
+      if ((unsigned char)text[0] >= 0x80)
+        {
+          return true;
+        }
+    }
+
+  return false;
+}
+
+static bool ui_is_closing_punct(uint32_t codepoint)
+{
+  switch (codepoint)
+    {
+      case 0x3001:  /* 、 */
+      case 0x3002:  /* 。 */
+      case 0xff0c:  /* ， */
+      case 0xff1b:  /* ； */
+      case 0xff1a:  /* ： */
+      case 0xff01:  /* ！ */
+      case 0xff1f:  /* ？ */
+      case 0xff09:  /* ） */
+      case 0x300b:  /* 》 */
+      case 0x300d:  /* 」 */
+      case 0x300f:  /* 』 */
+      case 0x3011:  /* 】 */
+      case 0x2026:  /* … */
+        return true;
+
+      default:
+        return false;
+    }
+}
+
+static void ui_draw_center_utf8(velafit_canvas_t *canvas, int cx, int cy,
+                                const char *text, velafit_color_t fg,
+                                int scale)
+{
+  int width = velafit_utf8_width(text, scale);
+
+  if (width <= 0)
+    {
+      return;
+    }
+
+  velafit_draw_utf8(canvas, cx - width / 2,
+                    cy - (VF_UTF8_CELL_H * scale) / 2, text, fg, scale);
+}
+
+/* CJK body: 16x16 cells at scale 2, max 568 px of physical width. Wrapping
+ * breaks between codepoints, keeps closing punctuation on the previous line
+ * when it fits, honours explicit newlines/blank lines, and marks truncation
+ * with "..." instead of silently clipping. */
+
+static void ui_page_advice_cjk(velafit_canvas_t *canvas,
+                               const velafit_ui_snapshot_t *snapshot)
+{
+  char line[192];
+  const char *cursor = snapshot->advice;
+  int max_width;
+  int row;
+
+  if (cursor == NULL)
+    {
+      return;
+    }
+
+  max_width = VF_UI_SCREEN_H - 2 * VF_UI_GAP_M;
+  row = 0;
+
+  while (cursor[0] != '\0' && row < VF_UI_ADVICE_MAX_LINES)
+    {
+      size_t used = 0;
+      int width = 0;
+
+      while (cursor[0] == ' ' || cursor[0] == '\t')
+        {
+          ++cursor;
+        }
+
+      if (cursor[0] == '\n' || cursor[0] == '\r')
+        {
+          /* Explicit blank line: it consumes one row and draws nothing. */
+          ++cursor;
+          ++row;
+          continue;
+        }
+
+      while (cursor[0] != '\0' && cursor[0] != '\n' && cursor[0] != '\r')
+        {
+          uint32_t codepoint;
+          int bytes = velafit_utf8_decode(cursor, &codepoint);
+          int advance;
+
+          if (bytes <= 0)
+            {
+              break;
+            }
+
+          advance = velafit_utf8_advance(codepoint);
+          if (cursor[0] >= 0x20 && cursor[0] <= 0x7e)
+            {
+              advance = VF_UTF8_ASCII_ADV;
+            }
+          else if (advance == 0)
+            {
+              advance = VF_UTF8_CJK_ADV;
+            }
+
+          advance *= VF_UI_BODY_SCALE;
+          if (width + advance > max_width)
+            {
+              /* Punctuation may overflow by one cell at the line end. */
+              if (!(ui_is_closing_punct(codepoint) &&
+                    width + advance <= max_width + VF_UTF8_CJK_ADV))
+                {
+                  break;
+                }
+            }
+
+          if (row == VF_UI_ADVICE_MAX_LINES - 1 &&
+              cursor[bytes] != '\0')
+            {
+              /* Leave room for the "..." truncation marker. */
+              if (width + advance > max_width - 3 * VF_UTF8_ASCII_ADV)
+                {
+                  break;
+                }
+            }
+
+          if (used + (size_t)bytes >= sizeof(line))
+            {
+              break;
+            }
+
+          memcpy(line + used, cursor, (size_t)bytes);
+          used += (size_t)bytes;
+          width += advance;
+          cursor += bytes;
+        }
+
+      while (used > 0 && (line[used - 1] == ' ' || line[used - 1] == '\t'))
+        {
+          --used;
+        }
+
+      if (row == VF_UI_ADVICE_MAX_LINES - 1 && cursor[0] != '\0')
+        {
+          const char *dots = "...";
+          size_t dots_len = strlen(dots);
+
+          if (used + dots_len < sizeof(line))
+            {
+              memcpy(line + used, dots, dots_len);
+              used += dots_len;
+            }
+        }
+
+      line[used] = '\0';
+      if (used > 0)
+        {
+          ui_draw_center_utf8(canvas, 150 + row * VF_UI_BODY_PITCH, 300,
+                              line, VF_UI_TEXT, VF_UI_BODY_SCALE);
+          ++row;
+        }
+
+      if (cursor[0] == '\n' || cursor[0] == '\r')
+        {
+          ++cursor;
+        }
+    }
 }
 
 static void ui_page_advice(velafit_canvas_t *canvas,
@@ -338,7 +532,15 @@ static void ui_page_advice(velafit_canvas_t *canvas,
   int row;
 
   velafit_ui_paint_background(canvas);
-  ui_draw_status_band(canvas, snapshot, "COACH ADVICE");
+  ui_draw_status_band(canvas, snapshot,
+                      snapshot->title ? snapshot->title : "COACH ADVICE");
+
+  if (snapshot->advice != NULL && ui_text_has_cjk(snapshot->advice))
+    {
+      ui_page_advice_cjk(canvas, snapshot);
+      ui_draw_hint_band(canvas, snapshot->advice_status, snapshot->hint_tone);
+      return;
+    }
 
   /* Body: fixed pitch on framebuffer X, hard-wrapped at whole glyphs. */
   cursor = snapshot->advice != NULL ? snapshot->advice : "";
