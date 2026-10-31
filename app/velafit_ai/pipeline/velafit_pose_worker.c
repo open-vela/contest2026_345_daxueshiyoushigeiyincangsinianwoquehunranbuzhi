@@ -12,7 +12,7 @@ struct vf_pose_worker
   pthread_t thread;
   pthread_mutex_t lock;
   pthread_cond_t ready;
-  bool stop,pending,valid;
+  bool stop,pending,valid,busy;
   uint64_t pending_ms,result_ms;
   uint8_t next[RGB_BYTES],work[RGB_BYTES];
   pose_frame_t result;
@@ -36,7 +36,7 @@ static void *run(void *arg)
       if(s->stop) break;
       memcpy(s->work,s->next,RGB_BYTES);
       uint64_t captured=s->pending_ms;
-      s->pending=false;
+      s->pending=false;s->busy=true;
       pthread_mutex_unlock(&s->lock);
       pose_frame_t pose={0};
       uint64_t start=clock_ms();
@@ -53,6 +53,7 @@ static void *run(void *arg)
           pose.timestamp_ms=(uint32_t)captured;
           s->result=pose;s->result_ms=captured;
         }
+      s->busy=false;
     }
   pthread_mutex_unlock(&s->lock);
   return NULL;
@@ -113,6 +114,23 @@ int vf_pose_worker_publish(struct vf_pose_worker *s,const uint8_t *rgb,uint64_t 
   pthread_cond_signal(&s->ready);
   pthread_mutex_unlock(&s->lock);
   return 0;
+}
+int vf_pose_worker_wait(struct vf_pose_worker *s,uint32_t timeout_ms)
+{
+  if(!s) return -EINVAL;
+  uint32_t waited=0;
+  for(;;)
+    {
+      struct timespec ts={0,5000000};
+      int done;
+      pthread_mutex_lock(&s->lock);
+      done=!s->pending && !s->busy;
+      pthread_mutex_unlock(&s->lock);
+      if(done) return 0;
+      if(waited>=timeout_ms) return -ETIMEDOUT;
+      nanosleep(&ts,NULL);
+      waited+=5;
+    }
 }
 int vf_pose_worker_latest(struct vf_pose_worker *s,uint64_t now,uint32_t age,
                           pose_frame_t *out,struct vf_pose_worker_stats *stats)

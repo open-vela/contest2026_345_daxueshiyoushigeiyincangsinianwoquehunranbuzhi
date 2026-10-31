@@ -9,7 +9,7 @@ PRIORITY  = SCHED_PRIORITY_DEFAULT
 # LCD conversion, skeleton/HUD rendering and printf formatting share this
 # foreground stack.  4 KiB corrupted the task after roughly 20-30 frames once
 # TinyPose/FSM locals were added.
-STACKSIZE = 32768
+STACKSIZE = 65536
 MODULE    = $(CONFIG_LVX_USE_DEMO_CONTEST2026_345_SC2336_PROBE)
 
 MAINSRC = sc2336_probe_main.c

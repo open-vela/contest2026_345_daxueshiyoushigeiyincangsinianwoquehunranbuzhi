@@ -61,6 +61,8 @@
 #include "../velafit_ai/models/velafit_pose_model.h"
 #include "../velafit_ai/pipeline/velafit_pose_worker.h"
 #include "../velafit_ai/render/velafit_render.h"
+#include "../velafit_ai/render/velafit_ui.h"
+#include "../velafit_ai/render/velafit_ui_theme.h"
 #include "../velafit_ai/algo/squat_fsm.h"
 #include "../velafit_ai/algo/velafit_body_check.h"
 #include "../velafit_ai/algo/geometry.h"
@@ -997,6 +999,294 @@ static void tiny_preview_draw_phase(velafit_canvas_t *canvas,
                       VELAFIT_COLOR_GREEN, VELAFIT_COLOR_DARKGRAY, 2);
 }
 
+
+/* -------------------------------------------------------------------------
+ * U1 fixed-layout product pages: deterministic on-device renderer used by the
+ * demo loop and by "ui_page" acceptance shots. No camera, no inference.
+ * ------------------------------------------------------------------------- */
+
+static int ui_shot_present(const uint8_t *buffer)
+{
+  struct fb_videoinfo_s vinfo;
+  struct fb_planeinfo_s pinfo;
+  int fd;
+  int ret = 0;
+
+  fd = open("/dev/fb0", O_RDWR);
+  if (fd < 0)
+    {
+      return -errno;
+    }
+
+  memset(&vinfo, 0, sizeof(vinfo));
+  memset(&pinfo, 0, sizeof(pinfo));
+  if (ioctl(fd, FBIOGET_VIDEOINFO,
+            (unsigned long)((uintptr_t)&vinfo)) < 0 ||
+      ioctl(fd, FBIOGET_PLANEINFO,
+            (unsigned long)((uintptr_t)&pinfo)) < 0)
+    {
+      ret = -errno;
+      goto out;
+    }
+
+  if (vinfo.fmt != FB_FMT_RGB16_565 || pinfo.bpp != 16 ||
+      vinfo.xres != 1024 || vinfo.yres != 600 || pinfo.fbmem == NULL)
+    {
+      ret = -ENOTSUP;
+      goto out;
+    }
+
+  memcpy(pinfo.fbmem, buffer, pinfo.fblen);
+  if (ioctl(fd, FBIOPAN_CLEAR, FB_NO_OVERLAY) < 0 ||
+      ioctl(fd, FBIOPAN_DISPLAY,
+            (unsigned long)((uintptr_t)&pinfo)) < 0)
+    {
+      ret = -errno;
+    }
+
+out:
+  close(fd);
+  return ret;
+}
+
+static int ui_shot_save_ppm(const char *path, const uint8_t *buffer,
+                            int width, int height, int scale,
+                            int crop_x, int crop_y,
+                            int crop_w, int crop_h)
+{
+  const uint16_t *src = (const uint16_t *)buffer;
+  FILE *fp;
+  int x0 = 0;
+  int y0 = 0;
+  int cw = width;
+  int ch = height;
+  int out_w;
+  int out_h;
+  int x;
+  int y;
+
+  /* ui_shot_crop: a negative or zero crop size keeps the full frame. A crop
+   * lets a full-resolution inspection target one band without flooding the
+   * 115200 baud console. */
+
+  if (crop_w > 0 && crop_h > 0)
+    {
+      if (crop_x >= 0 && crop_x < width)
+        {
+          x0 = crop_x;
+          cw = crop_w < width - crop_x ? crop_w : width - crop_x;
+        }
+
+      if (crop_y >= 0 && crop_y < height)
+        {
+          y0 = crop_y;
+          ch = crop_h < height - crop_y ? crop_h : height - crop_y;
+        }
+    }
+
+  out_w = cw / scale;
+  out_h = ch / scale;
+  if (out_w < 1 || out_h < 1)
+    {
+      return -EINVAL;
+    }
+
+  fp = fopen(path, "wb");
+  if (fp == NULL)
+    {
+      return -errno;
+    }
+
+  fprintf(fp, "P6\n%d %d\n255\n", out_w, out_h);
+  for (y = 0; y < out_h; y++)
+    {
+      for (x = 0; x < out_w; x++)
+        {
+          uint16_t p = src[(y0 + y * scale) * width + x0 + x * scale];
+          fputc((int)(((p >> 11) & 0x1f) << 3), fp);
+          fputc((int)(((p >> 5) & 0x3f) << 2), fp);
+          fputc((int)((p & 0x1f) << 3), fp);
+        }
+    }
+
+  fclose(fp);
+  return 0;
+}
+
+static int ui_shot_dump_base64(const char *path)
+{
+  static const char alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  uint8_t in[3];
+  unsigned int column = 0;
+  FILE *fp = fopen(path, "rb");
+
+  if (fp == NULL)
+    {
+      return -errno;
+    }
+
+  printf("VELAFIT_UI_PPM_BASE64_BEGIN\n");
+  while (1)
+    {
+      size_t n = fread(in, 1, sizeof(in), fp);
+      char out[4];
+
+      if (n == 0)
+        {
+          break;
+        }
+
+      out[0] = alphabet[in[0] >> 2];
+      out[1] = alphabet[((in[0] & 3) << 4) | (n > 1 ? in[1] >> 4 : 0)];
+      out[2] = n > 1 ? alphabet[((in[1] & 15) << 2) |
+                                (n > 2 ? in[2] >> 6 : 0)] : '=';
+      out[3] = n > 2 ? alphabet[in[2] & 63] : '=';
+      fwrite(out, 1, sizeof(out), stdout);
+      column += 4;
+      if (column == 76)
+        {
+          putchar('\n');
+          column = 0;
+          /* 115200 8N1 is ~11.5 KB/s; pace the dump so USB Serial/JTAG
+           * never overruns and the transfer stays byte-exact. */
+          usleep(6000);
+        }
+
+      if (n < sizeof(in))
+        {
+          break;
+        }
+    }
+
+  if (column != 0)
+    {
+      putchar('\n');
+    }
+
+  printf("VELAFIT_UI_PPM_BASE64_END\n");
+  fflush(stdout);
+  fclose(fp);
+  return 0;
+}
+
+/* Uniform stand-in for the camera image: layout shots are about the overlay,
+ * the report labels this area as simulated. */
+static void ui_shot_preview_stub(uint8_t *buffer)
+{
+  uint16_t *fb = (uint16_t *)buffer;
+  int index;
+
+  for (index = 0; index < 1024 * 600; index++)
+    {
+      fb[index] = (uint16_t)((5 << 11) | (13 << 5) | 7);
+    }
+}
+
+static int sc2336_run_ui_page(const char *page, unsigned long reps,
+                              int dump_scale, int crop_x, int crop_y,
+                              int crop_w, int crop_h)
+{
+  static const char ppm_path[] = "/tmp/velafit-ui.ppm";
+  uint8_t *buffer;
+  velafit_canvas_t canvas;
+  velafit_ui_snapshot_t snap;
+  int ret;
+
+  buffer = malloc(1024 * 600 * 2);
+  if (buffer == NULL)
+    {
+      return -ENOMEM;
+    }
+
+  memset(&snap, 0, sizeof(snap));
+  snap.demo_data = true;
+  snap.tracking = true;
+  snap.target = 20;
+  snap.reps = reps;
+  snap.state_label = "SQUATS";
+  snap.hint = "SHOULDERS TO ANKLES IN FRAME";
+  snap.hint_tone = VELAFIT_UI_TONE_NORMAL;
+
+  if (strcmp(page, "idle") == 0)
+    {
+      snap.page = VELAFIT_UI_PAGE_IDLE;
+      snap.hint = "PRESS START TO BEGIN";
+    }
+  else if (strcmp(page, "countdown") == 0)
+    {
+      snap.page = VELAFIT_UI_PAGE_TRAINING;
+      snap.countdown = true;
+      snap.countdown_number = 3;
+      snap.state_label = "GET SET";
+      snap.hint = "GET READY";
+    }
+  else if (strcmp(page, "trainlost") == 0)
+    {
+      snap.page = VELAFIT_UI_PAGE_TRAINING;
+      snap.tracking = false;
+      snap.state_label = "NO TRACK";
+      snap.hint = "STEP INTO FRAME";
+      snap.hint_tone = VELAFIT_UI_TONE_WARN;
+    }
+  else if (strcmp(page, "trainlong") == 0)
+    {
+      snap.page = VELAFIT_UI_PAGE_TRAINING;
+      snap.hint = "POSE NOT AVAILABLE - ADJUST LIGHT OR STEP BACK";
+      snap.hint_tone = VELAFIT_UI_TONE_WARN;
+    }
+  else if (strncmp(page, "train", 5) == 0)
+    {
+      snap.page = VELAFIT_UI_PAGE_TRAINING;
+    }
+  else if (strcmp(page, "summary") == 0)
+    {
+      snap.page = VELAFIT_UI_PAGE_SUMMARY;
+      snap.reps = 20;
+      snap.target = 20;
+      snap.elapsed_sec = 185;
+      snap.elapsed_valid = true;
+      snap.good_reps = 17;
+      snap.good_valid = true;
+      snap.hint = "START AGAIN WHEN READY";
+    }
+  else if (strcmp(page, "advice") == 0)
+    {
+      snap.page = VELAFIT_UI_PAGE_ADVICE;
+      snap.advice =
+        "YOUR DEPTH WAS CONSISTENT. KEEP THE SAME PACE FOR THE NEXT SET. "
+        "LOWER SLOWLY, PAUSE FOR ONE COUNT AT THE BOTTOM, AND PUSH THE "
+        "FLOOR AWAY. IF YOUR KNEES DRIFT INWARD, WIDEN YOUR STANCE A "
+        "LITTLE. BREATHE OUT ON THE WAY UP AND KEEP YOUR RIBS STACKED "
+        "OVER YOUR HIPS.";
+      snap.advice_status = "VOICE PLAYING";
+    }
+  else
+    {
+      free(buffer);
+      return -EINVAL;
+    }
+
+  ui_shot_preview_stub(buffer);
+  velafit_canvas_init(&canvas, buffer, 1024, 600, VELAFIT_PIXFMT_RGB565);
+  velafit_ui_render(&canvas, &snap);
+
+  ret = ui_shot_present(buffer);
+  printf("UI_SHOT page=%s reps=%lu scale=%d crop=%d,%d,%d,%d fb0=%s\n",
+         page, reps, dump_scale, crop_x, crop_y, crop_w, crop_h,
+         ret == 0 ? "PASS" : "SKIP");
+
+  ret = ui_shot_save_ppm(ppm_path, buffer, 1024, 600, dump_scale,
+                         crop_x, crop_y, crop_w, crop_h);
+  if (ret == 0)
+    {
+      ret = ui_shot_dump_base64(ppm_path);
+    }
+
+  free(buffer);
+  return ret;
+}
+
 static void velafit_demo_draw(velafit_canvas_t *canvas,
                               const velafit_session_t *session,
                               const velafit_body_check_result_t *body,
@@ -1004,80 +1294,80 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
                               bool tracking, uint64_t now_ms,
                               uint64_t session_start_ms)
 {
-  char line[32];
-  int cx = (int)canvas->width / 2;
-
-  if (session->state == VF_BODY_CHECK)
+  velafit_ui_snapshot_t snap;
+  if (canvas == NULL || session == NULL || squat == NULL)
     {
-      const char *prompt = velafit_body_check_user_message(body->status);
-      const int prompt_scale = 3;
-      const int prompt_width = ((int)strlen(prompt) * 6 - 1) * prompt_scale;
-      velafit_render_hud(canvas, "BODY CHECK", body->stable_frames, 0, 0,
-                         prompt);
-      /* The generic HUD is edge-aligned for landscape coordinates. Keep the
-       * active framing instruction centered so its CCW90 raster is never
-       * clipped on the physically rotated product LCD. */
-      velafit_draw_rect_filled(canvas, cx - 110, 130, 220, 340,
-                               VELAFIT_COLOR_DARKGRAY);
-      velafit_draw_rect(canvas, cx - 110, 130, 220, 340,
-                        body->status == BODY_CHECK_READY ?
-                        VELAFIT_COLOR_GREEN : VELAFIT_COLOR_YELLOW);
-      velafit_draw_string(canvas, cx - prompt_width / 2,
-                          300 - (7 * prompt_scale) / 2, prompt,
-                          body->status == BODY_CHECK_READY ?
-                          VELAFIT_COLOR_GREEN : VELAFIT_COLOR_YELLOW,
-                          VELAFIT_COLOR_DARKGRAY, prompt_scale);
       return;
     }
 
-  velafit_draw_rect_filled(canvas, cx - 230, 205, 460, 175,
-                           VELAFIT_COLOR_DARKGRAY);
-  velafit_draw_rect(canvas, cx - 230, 205, 460, 175,
-                    session->state == VF_FINISHED ? VELAFIT_COLOR_GREEN :
-                    VELAFIT_COLOR_YELLOW);
-  if (session->state == VF_READY)
+  memset(&snap, 0, sizeof(snap));
+  snap.page = VELAFIT_UI_PAGE_TRAINING;
+  snap.tracking = tracking;
+  snap.reps = squat->total_reps;
+  snap.target = target;
+  snap.hint_tone = VELAFIT_UI_TONE_NORMAL;
+  snap.state_label = "SQUATS";
+
+  switch (session->state)
     {
-      velafit_draw_string(canvas, cx - 145, 245, "GET READY",
-                          VELAFIT_COLOR_YELLOW, VELAFIT_COLOR_DARKGRAY, 4);
-      velafit_draw_string(canvas, cx - 135, 315, "STAND READY",
-                          VELAFIT_COLOR_WHITE, VELAFIT_COLOR_DARKGRAY, 3);
+      case VF_BODY_CHECK:
+        snap.title = "GET IN POSITION";
+        snap.state_label = "READY?";
+        snap.hint = body != NULL ?
+                    velafit_body_check_user_message(body->status) :
+                    "STEP INTO FRAME";
+        snap.hint_tone = body != NULL && body->status == BODY_CHECK_READY ?
+                         VELAFIT_UI_TONE_NORMAL : VELAFIT_UI_TONE_WARN;
+        break;
+
+      case VF_READY:
+        snap.state_label = "GET READY";
+        snap.hint = "STAND TALL HOLD STILL";
+        break;
+
+      case VF_COUNTDOWN:
+        {
+          uint64_t left = session->countdown_end_ms > now_ms ?
+                          session->countdown_end_ms - now_ms : 0;
+          unsigned int number = (unsigned int)((left + 999) / 1000);
+          snap.countdown = true;
+          snap.countdown_number = number < 1 ? 1 : number;
+          snap.state_label = "GET SET";
+          snap.hint = "START WHEN READY";
+        }
+        break;
+
+      case VF_RUNNING:
+        {
+          bool show_go = now_ms - session_start_ms < VF_UI_GO_BANNER_MS;
+          snap.state_label = show_go ? "GO" : "SQUATS";
+          snap.hint = show_go ? "GO GO GO" :
+                      (tracking ? "SHOULDERS TO ANKLES IN FRAME" :
+                                  "STEP INTO FRAME");
+          snap.hint_tone = tracking ? VELAFIT_UI_TONE_NORMAL :
+                                      VELAFIT_UI_TONE_WARN;
+        }
+        break;
+
+      case VF_FINISHED:
+        snap.page = VELAFIT_UI_PAGE_SUMMARY;
+        snap.elapsed_valid = session->active_ms > 0;
+        snap.elapsed_sec = (uint32_t)(session->active_ms / 1000);
+        snap.good_valid = false;
+        snap.hint = "START AGAIN WHEN READY";
+        break;
+
+      case VF_IDLE:
+      case VF_WAKEUP:
+      case VF_PAUSED:
+      default:
+        snap.hint = "READY WHEN YOU ARE";
+        break;
     }
-  else if (session->state == VF_COUNTDOWN)
-    {
-      uint64_t left = session->countdown_end_ms > now_ms ?
-                      session->countdown_end_ms - now_ms : 0;
-      unsigned int number = (unsigned int)((left + 999) / 1000);
-      if (number < 1) number = 1;
-      snprintf(line, sizeof(line), "%u", number);
-      velafit_draw_string(canvas, cx - 25, 240, line,
-                          VELAFIT_COLOR_YELLOW, VELAFIT_COLOR_DARKGRAY, 7);
-      velafit_draw_string(canvas, cx - 145, 330, "GET READY",
-                          VELAFIT_COLOR_WHITE, VELAFIT_COLOR_DARKGRAY, 3);
-    }
-  else if (session->state == VF_RUNNING)
-    {
-      bool show_go = now_ms - session_start_ms < 700;
-      velafit_draw_string(canvas, cx - (show_go ? 45 : 105), 225,
-                          show_go ? "GO" : "SQUATS", VELAFIT_COLOR_GREEN,
-                          VELAFIT_COLOR_DARKGRAY, show_go ? 7 : 4);
-      snprintf(line, sizeof(line), "%02lu / %02u",
-               (unsigned long)squat->total_reps, target);
-      velafit_draw_string(canvas, cx - 105, 315, line,
-                          VELAFIT_COLOR_WHITE, VELAFIT_COLOR_DARKGRAY, 4);
-      if (!tracking)
-        velafit_draw_string(canvas, cx - 145, 380, "LOW CONFIDENCE",
-                            VELAFIT_COLOR_RED, VELAFIT_COLOR_DARKGRAY, 2);
-    }
-  else if (session->state == VF_FINISHED)
-    {
-      velafit_draw_string(canvas, cx - 205, 255, "WORKOUT COMPLETE",
-                          VELAFIT_COLOR_GREEN, VELAFIT_COLOR_DARKGRAY, 3);
-      snprintf(line, sizeof(line), "%02lu / %02u",
-               (unsigned long)squat->total_reps, target);
-      velafit_draw_string(canvas, cx - 105, 325, line,
-                          VELAFIT_COLOR_WHITE, VELAFIT_COLOR_DARKGRAY, 4);
-    }
+
+  velafit_ui_render(canvas, &snap);
 }
+
 #endif
 #endif
 
@@ -1440,6 +1730,15 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
           ret=vf_pose_worker_publish(worker,model_rgb,t0/1000);
           if(ret==-EBUSY) ++mailbox_busy;
           else if(ret<0) goto out;
+          else
+            {
+              /* Serialize inference with capture.  On hardware the PSRAM
+               * heavy TinyPose invoke overlapped with CSI DMA and reset the
+               * board right after the first frame; waiting for this frame's
+               * result keeps exactly one owner of the bus at a time.
+               */
+              (void)vf_pose_worker_wait(worker,2000);
+            }
           pose_frame_t pose;
           ret=vf_pose_worker_latest(worker,preview_time_us()/1000,1000,
                                     &pose,&worker_stats);
@@ -1749,6 +2048,18 @@ out:
 
   /* No console output is attempted between the last displayed frame and
    * complete CSI/DMA shutdown. This keeps USB Serial/JTAG responsive. */
+  if (ret != 0)
+    {
+      /* Silently returning to the shell hides worker failures; report the
+       * abort code and worker counters before leaving the preview path. */
+      printf("LCD PREVIEW ABORT ret=%d pose_mode=%d frames=%" PRIu32
+             " stats_submitted=%lu stats_errors=%lu stats_empty=%lu\n",
+             ret,(int)pose_mode,frames,
+             (unsigned long)worker_stats.submitted,
+             (unsigned long)worker_stats.errors,
+             (unsigned long)worker_stats.empty);
+      fflush(stdout);
+    }
   if (ret == 0)
     {
       printf("LCD PREVIEW PASS frames=%" PRIu32 " active_frames=%" PRIu32
@@ -2143,6 +2454,10 @@ static void show_usage(const char *progname)
   printf("  preview_model [sec] [scale] Final RGB96 input, CCW to text"
          " (scale 1..6, default 4)\n");
   printf("  demo 3|5|20               Wake -> body check -> real squat demo\n");
+  printf("  ui_page <page> [reps] [dump] [x y w h] U1 fixed page shot: "
+         "idle|countdown|"
+         "train0|train9|train10|train99|train100|trainlost|trainlong|"
+         "summary|advice\n");
 #endif
   printf("  capture_prompt active|done LCD dataset collection state\n");
   printf("  csi-deinit                 De-initialize and gate CSI"
@@ -2373,6 +2688,27 @@ static int sc2336_dispatch(int argc, char *argv[])
         }
 
       ret = sc2336_run_dma_capture(fd, mode, 0, seconds);
+    }
+  else if (strcmp(cmd, "ui_page") == 0)
+    {
+      const char *page = argc > 2 ? argv[2] : "train10";
+      unsigned long reps = argc > 3 ? strtoul(argv[3], NULL, 0) : 10;
+      unsigned long scale = argc > 4 ? strtoul(argv[4], NULL, 0) : 3;
+      long crop_x = argc > 5 ? (long)strtol(argv[5], NULL, 0) : -1;
+      long crop_y = argc > 6 ? (long)strtol(argv[6], NULL, 0) : -1;
+      long crop_w = argc > 7 ? (long)strtol(argv[7], NULL, 0) : 0;
+      long crop_h = argc > 8 ? (long)strtol(argv[8], NULL, 0) : 0;
+      if (scale < 1 || scale > 5)
+        {
+          scale = 3;
+        }
+
+#ifdef VELAFIT_TINY_POSE
+      ret = sc2336_run_ui_page(page, reps, (int)scale, (int)crop_x,
+                               (int)crop_y, (int)crop_w, (int)crop_h);
+#else
+      ret = -ENOSYS;
+#endif
     }
   else if (strcmp(cmd, "preview") == 0 || strcmp(cmd,"preview_pose")==0 ||
            strcmp(cmd,"preview_tiny")==0 || strcmp(cmd,"preview_body")==0 ||

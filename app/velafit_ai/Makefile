@@ -107,6 +107,7 @@ CSRCS += algo/velafit_kws_acoustic.c
 CSRCS += algo/velafit_voice_command.c
 CSRCS += algo/velafit_resample.c
 CSRCS += render/velafit_render.c
+CSRCS += render/velafit_ui.c
 CSRCS += audio/velafit_audio_cue.c
 CSRCS += storage/velafit_storage.c
 CSRCS += sync/velafit_sync.c

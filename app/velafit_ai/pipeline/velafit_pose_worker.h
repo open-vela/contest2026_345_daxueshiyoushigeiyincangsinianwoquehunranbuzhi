@@ -18,6 +18,8 @@ struct vf_pose_worker *vf_pose_worker_start(vf_pose_inference infer,void *ctx);
 int vf_pose_worker_publish(struct vf_pose_worker *,const uint8_t *,uint64_t captured_ms);
 int vf_pose_worker_latest(struct vf_pose_worker *,uint64_t now_ms,uint32_t max_age_ms,
                           pose_frame_t *,struct vf_pose_worker_stats *);
+/* Block until the queued frame finishes inference (or timeout). */
+int vf_pose_worker_wait(struct vf_pose_worker *,uint32_t timeout_ms);
 void vf_pose_worker_stop(struct vf_pose_worker *);
 void vf_pose_worker_stop_with_stats(struct vf_pose_worker *,
                                     struct vf_pose_worker_stats *);
