@@ -1371,6 +1371,11 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
 #endif
 #endif
 
+/* U4 acceptance harness: one live demo page is dumped as a PPM after a
+ * frame that actually rendered skeleton points.  Diagnostic only. */
+
+static bool g_demo_shot;
+
 /* pose_mode: 0 camera only, 1 MoveNet, 2 TinyPose squat, 3 body check,
  * 4 exact final RGB96 model-input preview (no inference), 5 product demo.
  */
@@ -1435,6 +1440,9 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
   bool demo_running_initialized=false;
   bool demo_tracking=false;
   uint64_t demo_session_start_ms=0,demo_finished_ms=0;
+  unsigned int demo_shot_visible=0;
+  float demo_shot_kpts[8][2];
+  float demo_shot_scores[8];
 #ifdef VELAFIT_TINY_POSE
   struct tiny_preview_context tiny_stats={0};
 #endif
@@ -1554,6 +1562,12 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
               worker=vf_pose_worker_start(preview_infer,NULL);
             }
           if(!model_rgb || !worker) {ret=-ENOMEM;goto out;}
+          /* Inference runs on this thread.  The loop waits for every result
+           * before arming the next CSI capture, so the worker thread never
+           * overlapped anything useful; it only let inference and the
+           * GDMA/PSRAM path be in flight at the same time, which is the race
+           * that froze the board.  See vf_pose_worker_set_inline(). */
+          vf_pose_worker_set_inline(worker,true);
           worker_started=true;
           squat_fsm_init(&squat_fsm);
           squat_fsm_adaptive_init(&tiny_squat);
@@ -1570,7 +1584,7 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
               demo_last_state=demo_session.state;
               printf("[VELAFIT] IDLE -> BODY_CHECK target=%u\n",demo_target);
             }
-          printf("PREVIEW POSE: backend=%s worker=async pending<=1 "
+          printf("PREVIEW POSE: backend=%s worker=inline pending<=1 "
                  "result_TTL_ms=1000 confidence_gate=%.2f\n",
                  pose_mode>=2 ? "TinyPose-INT8" : "MoveNet",
                  pose_mode==2 ? (double)TINYPOSE_FSM_MIN_SCORE : 0.30);
@@ -1730,9 +1744,22 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                * generic camera preview has a different cover crop and cannot
                * prove whether a required keypoint is inside model space. */
               velafit_tiny_pose_debug_rgb96(model_rgb, model_rgb96);
-              ret=sc2336_model_preview_blit_ccw_rgb565(model_rgb96,
-                96*96*3,render_buffer,pinfo.fblen,vinfo.xres,vinfo.yres,
-                pinfo.stride/sizeof(uint16_t),model_preview_scale);
+              if (pose_mode == 5)
+                {
+                  /* Product training page: camera lives inside the UI band. */
+                  ret=sc2336_model_preview_blit_rect_ccw_rgb565(model_rgb96,
+                    96*96*3,render_buffer,pinfo.fblen,vinfo.xres,vinfo.yres,
+                    pinfo.stride/sizeof(uint16_t),
+                    VF_UI_PREVIEW_X0, VF_UI_PREVIEW_Y0,
+                    VF_UI_PREVIEW_X1 - VF_UI_PREVIEW_X0,
+                    VF_UI_PREVIEW_Y1 - VF_UI_PREVIEW_Y0);
+                }
+              else
+                {
+                  ret=sc2336_model_preview_blit_ccw_rgb565(model_rgb96,
+                    96*96*3,render_buffer,pinfo.fblen,vinfo.xres,vinfo.yres,
+                    pinfo.stride/sizeof(uint16_t),model_preview_scale);
+                }
               if(ret<0) goto out;
 #else
               ret=-ENOSYS;
@@ -1762,10 +1789,47 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
               velafit_canvas_t canvas;
               velafit_canvas_init(&canvas,(uint8_t *)render_buffer,vinfo.xres,
                                   vinfo.yres,VELAFIT_PIXFMT_RGB565);
-              if (pose_mode != 3 && pose_mode != 5)
+              if (pose_mode == 5)
+                {
+                  /* Overlay matches the band image exactly: same 96x96
+                   * letterbox, same CCW90 rotation, eight keypoints only.
+                   * latest() already dropped results older than 1 s. */
+                  velafit_render_model_skeleton(&canvas,&pose,
+                    VF_UI_PREVIEW_X0, VF_UI_PREVIEW_Y0,
+                    VF_UI_PREVIEW_X1 - VF_UI_PREVIEW_X0,
+                    VF_UI_PREVIEW_Y1 - VF_UI_PREVIEW_Y0);
+                }
+              else if (pose_mode != 3)
                 {
                   velafit_render_sc2336_skeleton(&canvas,&pose,1280,720,0);
                 }
+              if (pose_mode == 5 && g_demo_shot)
+                {
+                  static const uint8_t model_pts[8] =
+                    {
+                      KPT_LEFT_SHOULDER, KPT_RIGHT_SHOULDER,
+                      KPT_LEFT_HIP, KPT_RIGHT_HIP,
+                      KPT_LEFT_KNEE, KPT_RIGHT_KNEE,
+                      KPT_LEFT_ANKLE, KPT_RIGHT_ANKLE
+                    };
+                  unsigned int kept = 0;
+                  int j;
+
+                  for (j = 0; j < 8; j++)
+                    {
+                      demo_shot_kpts[j][0] = pose.kpts[model_pts[j]].x;
+                      demo_shot_kpts[j][1] = pose.kpts[model_pts[j]].y;
+                      demo_shot_scores[j] = pose.kpts[model_pts[j]].score;
+                      if (pose.kpts[model_pts[j]].score >=
+                          VELAFIT_KPT_CONF_THRESHOLD)
+                        {
+                          ++kept;
+                        }
+                    }
+
+                  demo_shot_visible = kept;
+                }
+
               if(pose_mode>=2 && pose.timestamp_ms!=last_pose_ms)
                 {
                   static const int required[8]={KPT_LEFT_SHOULDER,
@@ -1992,6 +2056,8 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
       clock_gettime(CLOCK_MONOTONIC, &now);
       if(pose_mode==5 && demo_session.state==VF_FINISHED &&
          preview_time_us()/1000-demo_finished_ms>=3000) break;
+      if (pose_mode == 5 && g_demo_shot && demo_shot_visible >= 2 &&
+          (uint32_t)(now.tv_sec - started.tv_sec) >= 3) break;
     }
   while ((uint32_t)(now.tv_sec - started.tv_sec) <
          duration_seconds + prepare_seconds);
@@ -2060,6 +2126,44 @@ out:
     {
       esp32p4_mipi_csi_deinit();
     }
+
+#ifdef CONFIG_VELAFIT_POSE_BACKEND_TFLM
+  if (g_demo_shot && pose_mode == 5 && frames > 0)
+    {
+      static const char ppm_path[] = "/tmp/velafit-demo.ppm";
+      static const char *const skel_names[8] =
+        {
+          "L_SHOULDER", "R_SHOULDER",
+          "L_HIP", "R_HIP",
+          "L_KNEE", "R_KNEE",
+          "L_ANKLE", "R_ANKLE"
+        };
+      int i;
+
+      printf("[VELAFIT] SKEL band=[%d,%d)x[%d,%d) kept=%u frames=%" PRIu32
+             "\n", VF_UI_PREVIEW_X0, VF_UI_PREVIEW_X1,
+             VF_UI_PREVIEW_Y0, VF_UI_PREVIEW_Y1,
+             demo_shot_visible, frames);
+      for (i = 0; i < 8; i++)
+        {
+          printf("[VELAFIT] SKEL %s mx=%.3f my=%.3f score=%.3f\n",
+                 skel_names[i], demo_shot_kpts[i][0], demo_shot_kpts[i][1],
+                 demo_shot_scores[i]);
+        }
+
+      fflush(stdout);
+      if (ui_shot_save_ppm(ppm_path, (const uint8_t *)pinfo.fbmem,
+                           vinfo.xres, vinfo.yres, 3, -1, -1, 0, 0) == 0)
+        {
+          (void)ui_shot_dump_base64(ppm_path);
+        }
+      else
+        {
+          printf("[VELAFIT] SKEL dump failed\n");
+          fflush(stdout);
+        }
+    }
+#endif
 
   /* No console output is attempted between the last displayed frame and
    * complete CSI/DMA shutdown. This keeps USB Serial/JTAG responsive. */
@@ -2469,6 +2573,8 @@ static void show_usage(const char *progname)
   printf("  preview_model [sec] [scale] Final RGB96 input, CCW to text"
          " (scale 1..6, default 4)\n");
   printf("  demo 3|5|20               Wake -> body check -> real squat demo\n");
+  printf("  demo_now 3|5|20 [sec] [shot] Demo without KWS wake; shot dumps\n"
+         "                             one live training page as PPM\n");
   printf("  ui_page <page> [reps] [dump] [x y w h] U1 fixed page shot: "
          "idle|countdown|"
          "train0|train9|train10|train99|train100|trainlost|trainlong|"
@@ -2516,22 +2622,31 @@ static int sc2336_dispatch(int argc, char *argv[])
       cmd = argv[1];
     }
 
-  if(strcmp(cmd,"demo")==0)
+  if(strcmp(cmd,"demo")==0 || strcmp(cmd,"demo_now")==0)
     {
       if(demo_target==0)
-        demo_target=argc==3 ? (unsigned int)strtoul(argv[2],NULL,0) : 20;
+        demo_target=argc>=3 ? (unsigned int)strtoul(argv[2],NULL,0) : 20;
       if(demo_target!=3 && demo_target!=5 && demo_target!=20)
         {
           fprintf(stderr,"target must be 3, 5 or 20\n");
           return EXIT_FAILURE;
         }
-      ret=velafit_wake_wait_once(60);
-      if(ret<0)
+      if (strcmp(cmd,"demo_now")==0)
         {
-          printf("[VELAFIT] wake failed ret=%d\n",ret);
-          return EXIT_FAILURE;
+          /* Bench entry for the same product state machine when the audio
+           * wake path is not built in (ACOUSTIC_KWS_AVAILABLE missing). */
+          printf("[VELAFIT] demo_now target=%u wake skipped\n",demo_target);
         }
-      printf("[VELAFIT] WAKE accepted; repeated wake disabled\n");
+      else
+        {
+          ret=velafit_wake_wait_once(60);
+          if(ret<0)
+            {
+              printf("[VELAFIT] wake failed ret=%d\n",ret);
+              return EXIT_FAILURE;
+            }
+          printf("[VELAFIT] WAKE accepted; repeated wake disabled\n");
+        }
     }
 
 #ifdef CONFIG_ESP32P4_MIPI_DSI
@@ -2727,12 +2842,15 @@ static int sc2336_dispatch(int argc, char *argv[])
     }
   else if (strcmp(cmd, "preview") == 0 || strcmp(cmd,"preview_pose")==0 ||
            strcmp(cmd,"preview_tiny")==0 || strcmp(cmd,"preview_body")==0 ||
-           strcmp(cmd,"preview_model")==0 || strcmp(cmd,"demo")==0)
+           strcmp(cmd,"preview_model")==0 || strcmp(cmd,"demo")==0 ||
+           strcmp(cmd,"demo_now")==0)
     {
       struct velafit_workout_summary_s workout_summary;
-      uint32_t seconds = strcmp(cmd,"demo")==0 ? 600 : 120;
+      uint32_t seconds = (strcmp(cmd,"demo")==0 ||
+                          strcmp(cmd,"demo_now")==0) ? 600 : 120;
 
-      if (strcmp(cmd,"demo")!=0 && argc > 2)
+      /* demo_now keeps argv[2] for the rep target, never for seconds. */
+      if (strcmp(cmd,"demo")!=0 && strcmp(cmd,"demo_now")!=0 && argc > 2)
         {
           seconds = (uint32_t)strtoul(argv[2], NULL, 0);
           if (seconds == 0)
@@ -2741,11 +2859,27 @@ static int sc2336_dispatch(int argc, char *argv[])
             }
         }
 
+      if (strcmp(cmd,"demo_now")==0 && argc > 3)
+        {
+          seconds = (uint32_t)strtoul(argv[3], NULL, 0);
+          if (seconds == 0)
+            {
+              seconds = 600;
+            }
+        }
+
+      if (strcmp(cmd,"demo_now")==0 && argc > 4 &&
+          strcmp(argv[4], "shot") == 0)
+        {
+          g_demo_shot = true;
+        }
+
       int pose_mode=strcmp(cmd,"preview_pose")==0 ? 1 :
                     (strcmp(cmd,"preview_tiny")==0 ? 2 :
                     (strcmp(cmd,"preview_body")==0 ? 3 :
                     (strcmp(cmd,"preview_model")==0 ? 4 :
-                    (strcmp(cmd,"demo")==0 ? 5 : 0))));
+                    ((strcmp(cmd,"demo")==0 ||
+                      strcmp(cmd,"demo_now")==0) ? 5 : 0))));
       uint8_t model_preview_scale = 4;
       uint32_t body_prepare_seconds = pose_mode == 3 ? 15 : 0;
       if ((pose_mode == 3 || pose_mode == 4) && argc > 3)
