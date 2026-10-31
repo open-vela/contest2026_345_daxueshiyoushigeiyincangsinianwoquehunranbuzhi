@@ -32,6 +32,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <malloc.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -2321,6 +2322,70 @@ struct vf_demo_set_s
   uint64_t elapsed_ms;
 };
 
+/* U8 acceptance: latency distribution.  MEAN alone cannot prove the P95
+ * requirement, so every frame contributes one sample per stage to a fixed
+ * ring.  Sampling and reporting are allocation-free apart from the one-shot
+ * sort at shutdown (2 KiB each), which runs after the camera is idle.
+ */
+#define VF_PERF_RING_SAMPLES 1024
+struct vf_perf_ring_s
+{
+  uint32_t sample[VF_PERF_RING_SAMPLES];
+  uint32_t count;
+  uint32_t next;
+};
+
+static void vf_perf_add(struct vf_perf_ring_s *ring, uint64_t us)
+{
+  ring->sample[ring->next] = us > UINT32_MAX ? UINT32_MAX : (uint32_t)us;
+  if (++ring->next >= VF_PERF_RING_SAMPLES)
+    {
+      ring->next = 0;
+    }
+
+  if (ring->count < VF_PERF_RING_SAMPLES)
+    {
+      ++ring->count;
+    }
+}
+
+static int vf_perf_compare(const void *a, const void *b)
+{
+  uint32_t x = *(const uint32_t *)a;
+  uint32_t y = *(const uint32_t *)b;
+  return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+static uint32_t vf_perf_percentile(struct vf_perf_ring_s *ring, uint32_t pct)
+{
+  static uint32_t sorted[VF_PERF_RING_SAMPLES];
+  uint32_t count = ring->count;
+  uint32_t index;
+
+  if (count == 0)
+    {
+      return 0;
+    }
+
+  memcpy(sorted, ring->sample, count * sizeof(sorted[0]));
+  qsort(sorted, count, sizeof(sorted[0]), vf_perf_compare);
+  index = (uint32_t)(((uint64_t)(count - 1) * pct) / 100);
+  return sorted[index];
+}
+
+static void vf_perf_report(const char *stage, struct vf_perf_ring_s *ring)
+{
+  if (ring->count == 0)
+    {
+      return;
+    }
+
+  printf("[VELAFIT] PERF stage=%s n=%" PRIu32 " p50_us=%" PRIu32
+         " p95_us=%" PRIu32 " max_us=%" PRIu32 "\n", stage, ring->count,
+         vf_perf_percentile(ring, 50), vf_perf_percentile(ring, 95),
+         vf_perf_percentile(ring, 100));
+}
+
 /* pose_mode: 0 camera only, 1 MoveNet, 2 TinyPose squat, 3 body check,
  * 4 exact final RGB96 model-input preview (no inference), 5 product demo.
  */
@@ -2344,6 +2409,18 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
   uint64_t present_us = 0;
   uint64_t preview_started_us;
   uint64_t capture_started_us;
+  struct mallinfo heap_begin;
+  struct mallinfo heap_end;
+  struct vf_perf_ring_s perf_capture;
+  struct vf_perf_ring_s perf_render;
+  struct vf_perf_ring_s perf_present;
+  struct vf_perf_ring_s perf_frame;
+  struct vf_perf_ring_s perf_infer;
+  struct vf_perf_ring_s perf_infer_wall;
+  struct vf_perf_ring_s perf_interval;
+  struct vf_perf_ring_s perf_age;
+  uint64_t perf_first_t0_us = 0;
+  uint64_t perf_last_t3_us = 0;
   uint32_t prepare_seconds = pose_mode == 2 ? TINYPOSE_PREPARE_SECONDS :
                              (pose_mode == 3 ? body_prepare_seconds : 0);
   uint32_t active_frames = 0;
@@ -2566,6 +2643,22 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
              prepare_seconds, duration_seconds);
     }
 
+  memset(&perf_capture, 0, sizeof(perf_capture));
+  memset(&perf_render, 0, sizeof(perf_render));
+  memset(&perf_present, 0, sizeof(perf_present));
+  memset(&perf_frame, 0, sizeof(perf_frame));
+  memset(&perf_infer, 0, sizeof(perf_infer));
+  memset(&perf_infer_wall, 0, sizeof(perf_infer_wall));
+  memset(&perf_interval, 0, sizeof(perf_interval));
+  memset(&perf_age, 0, sizeof(perf_age));
+  memset(&heap_begin, 0, sizeof(heap_begin));
+  memset(&heap_end, 0, sizeof(heap_end));
+
+  /* Baseline is taken with every model/render buffer already allocated and
+   * the inference worker running, so the end sample proves the frame path
+   * itself does not leak. */
+  heap_begin = mallinfo();
+
   do
     {
       uint64_t t0 = preview_time_us();
@@ -2736,6 +2829,7 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
               goto out;
 #endif
             }
+          uint64_t infer_wall_start_us=preview_time_us();
           ret=vf_pose_worker_publish(worker,model_rgb,t0/1000);
           if(ret==-EBUSY)
             {
@@ -2750,6 +2844,13 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
             {
               /* Keep exactly one owner of PSRAM and the CSI bus at a time. */
               (void)vf_pose_worker_wait(worker,5000);
+            }
+          /* U8 cross-check: the worker measures inference with its own
+           * clock; this is the same interval read from the camera loop. */
+          if(ret!=-ESTALE)
+            {
+              vf_perf_add(&perf_infer_wall,
+                          preview_time_us()-infer_wall_start_us);
             }
           pose_frame_t pose;
           ret=vf_pose_worker_latest(worker,preview_time_us()/1000,1000,
@@ -2808,6 +2909,23 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                     KPT_RIGHT_ANKLE};
                   uint64_t now_ms=preview_time_us()/1000;
                   uint64_t e2e_ms=now_ms-pose.timestamp_ms;
+
+                  /* U8: inference latency and result cadence for this fresh
+                   * result.  last_pose_ms is the previous capture timestamp,
+                   * so the delta is the pose update interval, not the loop
+                   * period. */
+                  if(worker_stats.last_inference_ms)
+                    {
+                      vf_perf_add(&perf_infer,
+                                  worker_stats.last_inference_ms*1000);
+                    }
+                  if(last_pose_ms!=0 &&
+                     (uint32_t)pose.timestamp_ms > last_pose_ms)
+                    {
+                      vf_perf_add(&perf_interval,
+                                  (uint64_t)(pose.timestamp_ms-
+                                             last_pose_ms)*1000);
+                    }
                   last_pose_ms=pose.timestamp_ms;
                   if (pose_mode==3)
                     {
@@ -2821,6 +2939,7 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                           e2e_sum_ms+=e2e_ms;
                           if(e2e_ms>e2e_max_ms) e2e_max_ms=e2e_ms;
                           ++e2e_samples;
+                          vf_perf_add(&perf_age, e2e_ms*1000);
                           velafit_body_check_update(&body_check,&pose,
                                                     &body_result);
                           if((unsigned int)body_result.status<=BODY_CHECK_READY)
@@ -2849,6 +2968,12 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                     }
                   else if (pose_mode==5)
                     {
+                      /* U8: the product path also needs a result-age
+                       * distribution; previously only modes 2/3 sampled it. */
+                      e2e_sum_ms+=e2e_ms;
+                      if(e2e_ms>e2e_max_ms) e2e_max_ms=e2e_ms;
+                      ++e2e_samples;
+                      vf_perf_add(&perf_age, e2e_ms*1000);
                       demo_tracking=tiny_pose_fsm_ready(&pose);
                       if(demo_session.state==VF_BODY_CHECK)
                         {
@@ -2926,6 +3051,7 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                       e2e_sum_ms+=e2e_ms;
                       if(e2e_ms>e2e_max_ms) e2e_max_ms=e2e_ms;
                       ++e2e_samples;
+                      vf_perf_add(&perf_age, e2e_ms*1000);
                       for(unsigned int i=0;i<8;i++)
                         tiny_score_sum[i]+=pose.kpts[required[i]].score;
                       if(tiny_pose_fsm_ready(&pose))
@@ -3095,6 +3221,22 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
       render_us += t2 - t1;
       present_us += t3 - t2;
       frames++;
+
+      /* U8 distribution samples: one entry per stage per frame. */
+      vf_perf_add(&perf_capture, t1 - t0);
+      vf_perf_add(&perf_render, t2 - t1);
+      vf_perf_add(&perf_present, t3 - t2);
+      if (perf_last_t3_us != 0)
+        {
+          vf_perf_add(&perf_frame, t3 - perf_last_t3_us);
+        }
+
+      if (perf_first_t0_us == 0)
+        {
+          perf_first_t0_us = t0;
+        }
+
+      perf_last_t3_us = t3;
       /* USB Serial/JTAG can block after a sustained stream while DSI and CSI
        * are active.  The first-frame record plus final aggregate is enough
        * for acceptance and keeps the live path independent of console TX. */
@@ -3113,6 +3255,10 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
     }
   while ((uint32_t)(now.tv_sec - started.tv_sec) <
          duration_seconds + prepare_seconds);
+
+  /* Sample the heap here, before the worker join and buffer frees, so both
+   * endpoints cover the exact same set of long-lived allocations. */
+  heap_end = mallinfo();
 
 #ifdef CONFIG_VELAFIT_POSE_BACKEND_TFLM
   if (pose_mode == 2 || pose_mode == 3)
@@ -3239,6 +3385,31 @@ out:
       printf("LCD PREVIEW MEAN capture_us=%" PRIu64 " render_us=%" PRIu64
              " present_us=%" PRIu64 "\n", capture_us / frames,
              render_us / frames, present_us / frames);
+      if (frames > 0)
+        {
+          uint64_t perf_elapsed_us = perf_last_t3_us - perf_first_t0_us;
+
+          printf("[VELAFIT] PERF frames=%" PRIu32 " elapsed_ms=%" PRIu64
+                 " fps=%.1f\n", frames, perf_elapsed_us / 1000,
+                 perf_elapsed_us ?
+                   (double)frames * 1000000.0 / (double)perf_elapsed_us : 0.0);
+          vf_perf_report("capture", &perf_capture);
+          vf_perf_report("render", &perf_render);
+          vf_perf_report("present", &perf_present);
+          vf_perf_report("frame", &perf_frame);
+          vf_perf_report("infer", &perf_infer);
+          vf_perf_report("infer_wall", &perf_infer_wall);
+          vf_perf_report("pose_interval", &perf_interval);
+          vf_perf_report("result_age", &perf_age);
+          printf("[VELAFIT] HEAP demo start_used=%u end_used=%u delta=%ld "
+                 "start_free=%u end_free=%u largest_free=%u\n",
+                 (unsigned int)heap_begin.uordblks,
+                 (unsigned int)heap_end.uordblks,
+                 (long)heap_end.uordblks - (long)heap_begin.uordblks,
+                 (unsigned int)heap_begin.fordblks,
+                 (unsigned int)heap_end.fordblks,
+                 (unsigned int)heap_end.mxordblk);
+        }
       if(pose_mode==5)
         {
           printf("[VELAFIT] DEMO final=%s target=%u reps=%lu "
