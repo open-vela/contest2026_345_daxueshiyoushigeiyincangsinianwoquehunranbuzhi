@@ -64,6 +64,7 @@
 #include "../velafit_ai/render/velafit_render.h"
 #include "../velafit_ai/render/velafit_ui.h"
 #include "../velafit_ai/render/velafit_ui_theme.h"
+#include "../velafit_ai/render/velafit_hint.h"
 #include "../velafit_ai/algo/squat_fsm.h"
 #include "../velafit_ai/algo/velafit_body_check.h"
 #include "../velafit_ai/algo/geometry.h"
@@ -1236,6 +1237,24 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
       snap.hint = "POSE NOT AVAILABLE - ADJUST LIGHT OR STEP BACK";
       snap.hint_tone = VELAFIT_UI_TONE_WARN;
     }
+  else if (strcmp(page, "hintcrop") == 0 ||
+           strcmp(page, "hintdark") == 0 ||
+           strcmp(page, "hintmove") == 0)
+    {
+      /* Layout tests for wording whose real trigger does not exist yet
+       * (brightness) or does not apply outside positioning (distance). */
+      velafit_hint_id_t id = strcmp(page, "hintcrop") == 0 ?
+                             VELAFIT_HINT_FULL_BODY :
+                             (strcmp(page, "hintdark") == 0 ?
+                              VELAFIT_HINT_LIGHT_DARK :
+                              VELAFIT_HINT_MOVE_BACK);
+
+      snap.page = VELAFIT_UI_PAGE_TRAINING;
+      snap.title = "UI TEST HINT";
+      snap.state_label = "LAYOUT";
+      snap.hint = velafit_hint_text(id);
+      snap.hint_tone = velafit_hint_tone(id);
+    }
   else if (strncmp(page, "train", 5) == 0)
     {
       snap.page = VELAFIT_UI_PAGE_TRAINING;
@@ -1290,10 +1309,10 @@ static int sc2336_run_ui_page(const char *page, unsigned long reps,
 
 static void velafit_demo_draw(velafit_canvas_t *canvas,
                               const velafit_session_t *session,
-                              const velafit_body_check_result_t *body,
                               const squat_fsm_t *squat, unsigned int target,
                               bool tracking, uint64_t now_ms,
-                              uint64_t session_start_ms)
+                              uint64_t session_start_ms,
+                              velafit_hint_id_t hint)
 {
   velafit_ui_snapshot_t snap;
   if (canvas == NULL || session == NULL || squat == NULL)
@@ -1306,24 +1325,22 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
   snap.tracking = tracking;
   snap.reps = squat->total_reps;
   snap.target = target;
-  snap.hint_tone = VELAFIT_UI_TONE_NORMAL;
   snap.state_label = "SQUATS";
+
+  /* The hint band has one owner: the policy already resolved priority,
+   * debounce and validity.  The page never invents a second line. */
+  snap.hint = velafit_hint_text(hint);
+  snap.hint_tone = velafit_hint_tone(hint);
 
   switch (session->state)
     {
       case VF_BODY_CHECK:
         snap.title = "GET IN POSITION";
         snap.state_label = "READY?";
-        snap.hint = body != NULL ?
-                    velafit_body_check_user_message(body->status) :
-                    "STEP INTO FRAME";
-        snap.hint_tone = body != NULL && body->status == BODY_CHECK_READY ?
-                         VELAFIT_UI_TONE_NORMAL : VELAFIT_UI_TONE_WARN;
         break;
 
       case VF_READY:
         snap.state_label = "GET READY";
-        snap.hint = "STAND TALL HOLD STILL";
         break;
 
       case VF_COUNTDOWN:
@@ -1334,7 +1351,6 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
           snap.countdown = true;
           snap.countdown_number = number < 1 ? 1 : number;
           snap.state_label = "GET SET";
-          snap.hint = "START WHEN READY";
         }
         break;
 
@@ -1342,11 +1358,6 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
         {
           bool show_go = now_ms - session_start_ms < VF_UI_GO_BANNER_MS;
           snap.state_label = show_go ? "GO" : "SQUATS";
-          snap.hint = show_go ? "GO GO GO" :
-                      (tracking ? "SHOULDERS TO ANKLES IN FRAME" :
-                                  "STEP INTO FRAME");
-          snap.hint_tone = tracking ? VELAFIT_UI_TONE_NORMAL :
-                                      VELAFIT_UI_TONE_WARN;
           snap.elapsed_valid = true;
           snap.elapsed_sec = (uint32_t)(session->active_ms / 1000);
         }
@@ -1357,14 +1368,12 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
         snap.elapsed_valid = session->active_ms > 0;
         snap.elapsed_sec = (uint32_t)(session->active_ms / 1000);
         snap.good_valid = false;
-        snap.hint = "START AGAIN WHEN READY";
         break;
 
       case VF_IDLE:
       case VF_WAKEUP:
       case VF_PAUSED:
       default:
-        snap.hint = "READY WHEN YOU ARE";
         break;
     }
 
@@ -1407,6 +1416,17 @@ static int velafit_demo_restart(velafit_session_t *session,
   *tracking = false;
   return 0;
 }
+
+/* Hint band transitions retained until a safe point, because console TX can
+ * block while CSI and DSI are active. */
+#define VF_DEMO_MAX_HINTS 16
+struct vf_demo_hint_log_s
+{
+  uint64_t at_ms;
+  int from;
+  int to;
+  bool rep_event;
+};
 
 /* Deterministic product-loop test.  It drives the same session transitions
  * the camera loop drives, without a camera or a person, so the closed loop
@@ -1672,6 +1692,322 @@ static int velafit_demo_dryrun(unsigned int target)
   return failures == 0 ? 0 : -EIO;
 }
 
+/* Deterministic test of the hint policy: priority, debounce, minimum display,
+ * single-fire completion feedback, expiry, generation reset and the refusal
+ * to emit diagnoses or missing-signal hints in real mode. */
+
+static void velafit_hint_test_input(velafit_hint_input_t *input,
+                                    enum velafit_session_state state)
+{
+  memset(input, 0, sizeof(*input));
+  input->session_state = state;
+  input->tracking = true;
+  input->body_valid = false;
+  input->body_status = BODY_CHECK_LOW_CONFIDENCE;
+}
+
+static int velafit_hint_selftest(void)
+{
+  velafit_hint_state_t state;
+  velafit_hint_config_t config;
+  velafit_hint_input_t input;
+  velafit_hint_result_t result;
+  unsigned int total = 0;
+  unsigned int transitions;
+  int failures = 0;
+  int i;
+
+#define VF_HT(name,cond) \
+  do \
+    { \
+      ++total; \
+      if (cond) \
+        { \
+          printf("[VELAFIT] HINT SELFTEST PASS %s\n", name); \
+        } \
+      else \
+        { \
+          printf("[VELAFIT] HINT SELFTEST FAIL %s\n", name); \
+          ++failures; \
+        } \
+    } \
+  while (0)
+
+  velafit_hint_config_default(&config);
+
+  /* 1. A blocking error replaces the current hint with no debounce and no
+   * minimum display wait. */
+
+  velafit_hint_init(&state, &config);
+  memset(&result, 0, sizeof(result));
+  velafit_hint_test_input(&input, VF_RUNNING);
+  velafit_hint_update(&state, &input, 1000, &result);
+  VF_HT("first_hint_immediate", result.id == VELAFIT_HINT_ENCOURAGE &&
+        result.changed);
+  input.advice_failed = true;
+  velafit_hint_update(&state, &input, 1100, &result);
+  VF_HT("blocking_immediate", result.id == VELAFIT_HINT_ADVICE_FAILED &&
+        result.changed && state.transitions == 2);
+
+  /* 2. A lower-priority pose hint must wait for stability and for the
+   * blocking line's minimum display time. */
+
+  velafit_hint_test_input(&input, VF_BODY_CHECK);
+  input.body_valid = true;
+  input.body_status = BODY_CHECK_TOO_FAR;
+  velafit_hint_update(&state, &input, 1500, &result);
+  VF_HT("lower_priority_waits", result.id == VELAFIT_HINT_ADVICE_FAILED);
+  velafit_hint_update(&state, &input, 2100, &result);
+  VF_HT("lower_priority_switches", result.id == VELAFIT_HINT_MOVE_CLOSER);
+
+  /* 3. Debounce: a short dropout never reaches the band. */
+
+  velafit_hint_init(&state, &config);
+  velafit_hint_test_input(&input, VF_RUNNING);
+  velafit_hint_update(&state, &input, 1000, &result);
+  input.tracking = false;
+  velafit_hint_update(&state, &input, 1100, &result);
+  velafit_hint_update(&state, &input, 1200, &result);
+  VF_HT("debounce_holds", result.id == VELAFIT_HINT_ENCOURAGE);
+  input.tracking = true;
+  velafit_hint_update(&state, &input, 1300, &result);
+  transitions = state.transitions;
+  for (i = 0; i < 5; i++)
+    {
+      velafit_hint_update(&state, &input, 1400 + 100 * i, &result);
+    }
+
+  VF_HT("flicker_filtered", result.id == VELAFIT_HINT_ENCOURAGE &&
+        state.transitions == transitions);
+
+  /* 4. Sustained loss of admission switches after the stability window. */
+
+  input.tracking = false;
+  velafit_hint_update(&state, &input, 1400, &result);
+  velafit_hint_update(&state, &input, 1700, &result);
+  VF_HT("sustained_loss_switches",
+        result.id == VELAFIT_HINT_POSE_UNAVAILABLE);
+
+  /* 5. Completion feedback fires once per counted repetition and is never
+   * re-triggered by a redraw. */
+
+  velafit_hint_init(&state, &config);
+  velafit_hint_test_input(&input, VF_RUNNING);
+  input.reps = 0;
+  velafit_hint_update(&state, &input, 1000, &result);
+  input.reps = 1;
+  velafit_hint_update(&state, &input, 1100, &result);
+  VF_HT("rep_event_detected", result.rep_event &&
+        state.rep_events == 1);
+  velafit_hint_update(&state, &input, 1300, &result);
+  VF_HT("rep_feedback_deferred", result.id == VELAFIT_HINT_ENCOURAGE);
+  velafit_hint_update(&state, &input, 1400, &result);
+  VF_HT("rep_feedback_shown", result.id == VELAFIT_HINT_REP_DONE);
+  velafit_hint_update(&state, &input, 1600, &result);
+  velafit_hint_update(&state, &input, 1700, &result);
+  VF_HT("rep_feedback_once", !result.rep_event &&
+        state.rep_events == 1 && result.id == VELAFIT_HINT_REP_DONE);
+
+  /* 6. Two increments inside one minimum-display window are both observed;
+   * debounce never hides a real count. */
+
+  velafit_hint_init(&state, &config);
+  velafit_hint_test_input(&input, VF_RUNNING);
+  input.reps = 2;
+  velafit_hint_update(&state, &input, 1000, &result);
+  VF_HT("rep_counts_not_hidden", state.rep_events == 2 &&
+        result.id == VELAFIT_HINT_REP_DONE);
+
+  /* 7. Completion feedback expires; the base line returns. */
+
+  velafit_hint_update(&state, &input, 3100, &result);
+  velafit_hint_update(&state, &input, 3500, &result);
+  VF_HT("feedback_expires", result.id == VELAFIT_HINT_ENCOURAGE);
+
+  /* 8. Session end is blocking and the summary line is shown at once. */
+
+  velafit_hint_test_input(&input, VF_FINISHED);
+  velafit_hint_update(&state, &input, 3600, &result);
+  VF_HT("summary_blocking", result.id == VELAFIT_HINT_SUMMARY &&
+        result.changed);
+
+  /* 9. Pose-unavailable must not be replaced by a distance claim when body
+   * check has no verdict for the running set. */
+
+  velafit_hint_init(&state, &config);
+  velafit_hint_test_input(&input, VF_RUNNING);
+  input.tracking = false;
+  input.body_valid = false;
+  input.body_status = BODY_CHECK_TOO_FAR;
+  velafit_hint_update(&state, &input, 1000, &result);
+  VF_HT("no_distance_without_evidence",
+        result.id == VELAFIT_HINT_POSE_UNAVAILABLE);
+
+  /* 10. Body check verdicts map to their own evidence-backed lines. */
+
+  velafit_hint_test_input(&input, VF_BODY_CHECK);
+  input.body_valid = true;
+  input.body_status = BODY_CHECK_NOT_FULLY_VISIBLE;
+  velafit_hint_update(&state, &input, 1100, &result);
+  velafit_hint_update(&state, &input, 1500, &result);
+  VF_HT("full_body_from_evidence", result.id == VELAFIT_HINT_FULL_BODY);
+  input.body_status = BODY_CHECK_TOO_CLOSE;
+  velafit_hint_update(&state, &input, 1900, &result);
+  velafit_hint_update(&state, &input, 2300, &result);
+  VF_HT("move_back_from_evidence", result.id == VELAFIT_HINT_MOVE_BACK);
+
+  /* 11. Reset on a new generation drops counters and feedback state. */
+
+  transitions = state.transitions;
+  velafit_hint_reset(&state, state.generation + 1);
+  VF_HT("generation_reset", state.rep_events == 0 && state.last_reps == 0 &&
+        state.shown == VELAFIT_HINT_NONE && transitions > 0);
+
+  /* 12. Light wording exists for layout tests only and is not real mode. */
+
+  VF_HT("light_layout_only",
+        velafit_hint_describe(VELAFIT_HINT_LIGHT_DARK)->real_mode == false);
+
+  /* 13. Table is complete, one line each, and free of unsupported claims. */
+
+  for (i = 1; i < VELAFIT_HINT_COUNT; i++)
+    {
+      const velafit_hint_desc_t *row =
+        velafit_hint_describe((velafit_hint_id_t)i);
+      const char *text = velafit_hint_text((velafit_hint_id_t)i);
+      ++total;
+      if (row == NULL || row->text == NULL || text[0] == '\0' ||
+          strlen(text) > VF_UI_HINT_MAX_CHARS ||
+          strstr(text, "KNEE") != NULL ||
+          strstr(text, "VALGUS") != NULL ||
+          strstr(text, "PERFECT") != NULL)
+        {
+          printf("[VELAFIT] HINT SELFTEST FAIL row_%d\n", i);
+          ++failures;
+        }
+    }
+
+  printf("[VELAFIT] HINT SELFTEST checks=%u failed=%d result=%s\n", total,
+         failures, failures == 0 ? "PASS" : "FAIL");
+  fflush(stdout);
+#undef VF_HT
+  return failures == 0 ? 0 : -EIO;
+}
+
+/* Scripted hint timeline.  It prints one record per band switch so the
+ * priority/debounce/validity behaviour is reviewable as a trace instead of
+ * only as pass/fail assertions. */
+
+static velafit_hint_id_t velafit_hint_trace_step(velafit_hint_state_t *hint,
+                                                 uint64_t now_ms,
+                                                 enum velafit_session_state s,
+                                                 bool tracking,
+                                                 bool rep_in_progress,
+                                                 bool go_banner, uint32_t reps,
+                                                 bool body_valid,
+                                                 velafit_body_check_status_t
+                                                   body,
+                                                 bool advice_failed)
+{
+  velafit_hint_input_t input;
+  velafit_hint_result_t result;
+
+  memset(&input, 0, sizeof(input));
+  memset(&result, 0, sizeof(result));
+  input.session_state = s;
+  input.tracking = tracking;
+  input.rep_in_progress = rep_in_progress;
+  input.go_banner = go_banner;
+  input.reps = reps;
+  input.advice_failed = advice_failed;
+  input.body_valid = body_valid;
+  input.body_status = body;
+
+  velafit_hint_update(hint, &input, now_ms, &result);
+  if (result.changed)
+    {
+      printf("[VELAFIT] HINTTRACE at_ms=%llu from=%d(%s) to=%d(%s) "
+             "rep=%s\n", (unsigned long long)now_ms,
+             (int)result.previous,
+             velafit_hint_text(result.previous),
+             (int)result.id, velafit_hint_text(result.id),
+             result.rep_event ? "yes" : "no");
+    }
+
+  return result.id;
+}
+
+static int velafit_hint_trace(void)
+{
+  velafit_hint_state_t hint;
+  velafit_hint_id_t id = VELAFIT_HINT_NONE;
+  unsigned int steps = 0;
+
+  velafit_hint_init(&hint, NULL);
+
+#define VF_TRACE(t,s,tr,rep,go,reps,body_ok,body,adv) \
+  do \
+    { \
+      ++steps; \
+      id = velafit_hint_trace_step(&hint, (t), (s), (tr), (rep), (go), \
+                                   (reps), (body_ok), (body), (adv)); \
+    } \
+  while (0)
+
+  VF_TRACE(1000, VF_BODY_CHECK, false, false, false, 0, false,
+           BODY_CHECK_LOW_CONFIDENCE, false);
+  VF_TRACE(2000, VF_BODY_CHECK, false, false, false, 0, true,
+           BODY_CHECK_READY, false);
+  VF_TRACE(2300, VF_BODY_CHECK, false, false, false, 0, true,
+           BODY_CHECK_READY, false);
+  VF_TRACE(3200, VF_READY, true, false, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(3500, VF_READY, true, false, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(4400, VF_COUNTDOWN, true, false, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(4700, VF_COUNTDOWN, true, false, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(5600, VF_RUNNING, true, false, true, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(5900, VF_RUNNING, true, false, true, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(6500, VF_RUNNING, false, false, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(6800, VF_RUNNING, false, false, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(7100, VF_RUNNING, true, true, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(7400, VF_RUNNING, true, true, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(7700, VF_RUNNING, true, true, false, 0, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(8000, VF_RUNNING, true, false, false, 1, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(8300, VF_RUNNING, true, false, false, 1, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(8600, VF_RUNNING, true, false, false, 1, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(8900, VF_RUNNING, true, false, false, 2, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(10000, VF_FINISHED, false, false, false, 2, false,
+           BODY_CHECK_READY, false);
+  VF_TRACE(10300, VF_FINISHED, false, false, false, 2, false,
+           BODY_CHECK_READY, true);
+
+#undef VF_TRACE
+
+  printf("[VELAFIT] HINTTRACE steps=%u transitions=%lu rep_seen=%lu "
+         "final=%d(%s) result=%s\n", steps,
+         (unsigned long)hint.transitions, (unsigned long)hint.rep_events,
+         (int)id, velafit_hint_text(id),
+         id == VELAFIT_HINT_ADVICE_FAILED && hint.transitions >= 8 ?
+         "PASS" : "FAIL");
+  fflush(stdout);
+  return id == VELAFIT_HINT_ADVICE_FAILED && hint.transitions >= 8 ?
+         0 : -EIO;
+}
+
 #endif
 #endif
 
@@ -1755,6 +2091,11 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
   uint64_t demo_session_start_ms=0,demo_finished_ms=0;
   struct vf_demo_set_s demo_sets[VF_DEMO_MAX_SETS];
   uint32_t demo_set_count=0;
+  velafit_hint_state_t demo_hint;
+  velafit_hint_id_t demo_hint_id=VELAFIT_HINT_NONE;
+  uint32_t demo_hint_generation=0;
+  struct vf_demo_hint_log_s demo_hint_log[VF_DEMO_MAX_HINTS];
+  uint32_t demo_hint_log_count=0;
   unsigned int demo_shot_visible=0;
   float demo_shot_kpts[8][2];
   float demo_shot_scores[8];
@@ -1897,6 +2238,9 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                                          preview_time_us()/1000);
               if(ret<0) goto out;
               demo_last_state=demo_session.state;
+              velafit_hint_init(&demo_hint,NULL);
+              demo_hint_generation=demo_session.generation;
+              demo_hint_id=VELAFIT_HINT_STEP_IN;
               printf("[VELAFIT] IDLE -> BODY_CHECK target=%u\n",demo_target);
             }
           printf("PREVIEW POSE: backend=%s worker=inline pending<=1 "
@@ -2352,12 +2696,51 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
            * pose, so countdown digits, the live clock and the summary never
            * freeze waiting for inference. */
           velafit_canvas_t page_canvas;
+          velafit_hint_input_t hint_in;
+          velafit_hint_result_t hint_res;
+          uint64_t hint_now_ms = preview_time_us() / 1000;
+
+          if (demo_session.generation != demo_hint_generation)
+            {
+              /* A restarted set owns new counters and new feedback state. */
+              velafit_hint_reset(&demo_hint, demo_session.generation);
+              demo_hint_generation = demo_session.generation;
+            }
+
+          memset(&hint_in, 0, sizeof(hint_in));
+          hint_in.session_state = demo_session.state;
+          hint_in.body_status = body_result.status;
+          hint_in.body_valid = demo_session.state == VF_BODY_CHECK;
+          hint_in.tracking = demo_tracking;
+          hint_in.rep_in_progress = squat_fsm.state == SQUAT_STATE_ASCENDING;
+          hint_in.go_banner = demo_session.state == VF_RUNNING &&
+                              demo_session_start_ms != 0 &&
+                              hint_now_ms - demo_session_start_ms <
+                              VF_UI_GO_BANNER_MS;
+          hint_in.reps = squat_fsm.total_reps;
+
+          memset(&hint_res, 0, sizeof(hint_res));
+          hint_res.id = demo_hint_id;
+          velafit_hint_update(&demo_hint, &hint_in, hint_now_ms, &hint_res);
+
+          if (hint_res.changed && demo_hint_log_count < VF_DEMO_MAX_HINTS)
+            {
+              demo_hint_log[demo_hint_log_count].at_ms = hint_now_ms;
+              demo_hint_log[demo_hint_log_count].from = (int)hint_res.previous;
+              demo_hint_log[demo_hint_log_count].to = (int)hint_res.id;
+              demo_hint_log[demo_hint_log_count].rep_event =
+                hint_res.rep_event;
+              ++demo_hint_log_count;
+            }
+
+          demo_hint_id = hint_res.id;
           velafit_canvas_init(&page_canvas, (uint8_t *)render_buffer,
                               vinfo.xres, vinfo.yres,
                               VELAFIT_PIXFMT_RGB565);
-          velafit_demo_draw(&page_canvas, &demo_session, &body_result,
+          velafit_demo_draw(&page_canvas, &demo_session,
                             &squat_fsm, demo_target, demo_tracking,
-                            preview_time_us() / 1000, demo_session_start_ms);
+                            hint_now_ms, demo_session_start_ms,
+                            demo_hint_id);
         }
 #endif
       if (pose_mode == 2 || pose_mode == 3)
@@ -2576,6 +2959,22 @@ out:
               printf("[VELAFIT] DEMO set=%u reps=%lu elapsed_ms=%llu\n",
                      s + 1, (unsigned long)demo_sets[s].reps,
                      (unsigned long long)demo_sets[s].elapsed_ms);
+            }
+          printf("[VELAFIT] HINT transitions=%lu reps_seen=%lu\n",
+                 (unsigned long)demo_hint.transitions,
+                 (unsigned long)demo_hint.rep_events);
+          for (unsigned int h = 0; h < demo_hint_log_count; h++)
+            {
+              printf("[VELAFIT] HINT at_ms=%llu from=%d(%s) to=%d(%s) "
+                     "rep=%s\n",
+                     (unsigned long long)demo_hint_log[h].at_ms,
+                     demo_hint_log[h].from,
+                     velafit_hint_text((velafit_hint_id_t)
+                                       demo_hint_log[h].from),
+                     demo_hint_log[h].to,
+                     velafit_hint_text((velafit_hint_id_t)
+                                       demo_hint_log[h].to),
+                     demo_hint_log[h].rep_event ? "yes" : "no");
             }
           if (summary != NULL && demo_session.state == VF_FINISHED)
             {
@@ -2958,10 +3357,13 @@ static void show_usage(const char *progname)
          "                             one live training page as PPM\n");
   printf("  demo_selftest            Closed-loop test: 3 sets, restart, stop\n");
   printf("  demo_dryrun [reps]       Synthetic 3 sets through the real counter\n");
+  printf("  hint_selftest            Hint priority/debounce/validity tests\n");
+  printf("  hint_trace               Scripted hint switch trace\n");
+  printf("  hint_table               Dump hint trigger/recovery/validity table\n");
   printf("  ui_page <page> [reps] [dump] [x y w h] U1 fixed page shot: "
          "idle|countdown|"
          "train0|train9|train10|train99|train100|trainlost|trainlong|"
-         "summary|advice\n");
+         "summary|advice|hintcrop|hintdark|hintmove\n");
 #endif
   printf("  capture_prompt active|done LCD dataset collection state\n");
   printf("  csi-deinit                 De-initialize and gate CSI"
@@ -3045,6 +3447,38 @@ static int sc2336_dispatch(int argc, char *argv[])
                             (unsigned int)strtoul(argv[2], NULL, 0) : 3;
       ret = velafit_demo_dryrun(target);
       return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+  if (strcmp(cmd, "hint_selftest") == 0)
+    {
+      ret = velafit_hint_selftest();
+      return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+  if (strcmp(cmd, "hint_trace") == 0)
+    {
+      ret = velafit_hint_trace();
+      return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+  if (strcmp(cmd, "hint_table") == 0)
+    {
+      const velafit_hint_desc_t *rows[VELAFIT_HINT_COUNT];
+      unsigned int count = velafit_hint_table(rows, VELAFIT_HINT_COUNT);
+      unsigned int i;
+
+      for (i = 0; i < count; i++)
+        {
+          printf("[VELAFIT] HINT table id=%u prio=%u real=%s text=\"%s\" "
+                 "trigger=\"%s\" recovery=\"%s\" validity_ms=%llu\n",
+                 (unsigned int)rows[i]->id, rows[i]->priority,
+                 rows[i]->real_mode ? "yes" : "no", rows[i]->text,
+                 rows[i]->trigger, rows[i]->recovery,
+                 (unsigned long long)rows[i]->validity_ms);
+        }
+
+      fflush(stdout);
+      return EXIT_SUCCESS;
     }
 #endif
 
