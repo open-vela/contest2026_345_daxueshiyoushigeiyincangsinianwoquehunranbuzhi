@@ -74,7 +74,10 @@ struct sc2336_reg_s
  * Public Data
  ****************************************************************************/
 
-/* SC2336 2-lane 24MHz XVCLK 1280x720 30fps RAW10 (cleaned_0x2e) */
+/* SC2336 2-lane 24MHz XVCLK 1280x720 RAW10 (cleaned_0x2e). VTS is shortened
+ * from the vendor 1500 lines to 960 lines so the live preview runs at about
+ * 13 fps instead of 8.3 fps; the fixed 894-line exposure still fits inside
+ * the frame, so brightness is unchanged. */
 
 static const struct sc2336_reg_s g_sc2336_720p_30fps[] =
 {
@@ -98,8 +101,8 @@ static const struct sc2336_reg_s g_sc2336_720p_30fps[] =
   { 0x320b, 0xd0 },
   { 0x320c, 0x07 },
   { 0x320d, 0x08 },
-  { 0x320e, 0x05 },
-  { 0x320f, 0xdc },
+  { 0x320e, 0x03 },
+  { 0x320f, 0xc0 },
   { 0x3210, 0x00 },
   { 0x3211, 0x10 },
   { 0x3212, 0x00 },

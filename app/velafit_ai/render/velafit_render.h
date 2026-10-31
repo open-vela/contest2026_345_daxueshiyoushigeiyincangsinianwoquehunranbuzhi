@@ -211,6 +211,14 @@ void velafit_render_sc2336_skeleton(velafit_canvas_t *canvas,
                                    uint16_t raw_w, uint16_t raw_h,
                                    uint32_t quality_flags);
 
+/* Same mapping, restricted to the camera rectangle (x0,y0,w,h). */
+void velafit_render_sc2336_skeleton_rect(velafit_canvas_t *canvas,
+                                        const pose_frame_t *model_pose,
+                                        uint16_t raw_w, uint16_t raw_h,
+                                        uint16_t x0, uint16_t y0,
+                                        uint16_t w, uint16_t h,
+                                        uint32_t quality_flags);
+
 void velafit_render_skeleton(velafit_canvas_t *canvas,
                              const pose_frame_t *pose,
                              uint32_t quality_flags);
