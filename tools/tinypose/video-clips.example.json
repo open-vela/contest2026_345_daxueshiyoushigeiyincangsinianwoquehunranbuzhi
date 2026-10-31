@@ -1,0 +1,30 @@
+{
+  "clips": [
+    {
+      "path": "videos/person-a-squat.mp4",
+      "subject_id": "person-a",
+      "split": "train",
+      "exercise": "squat",
+      "license": "self-recorded, participant consent obtained",
+      "source_url": "self-recorded:session-a",
+      "single_person_confirmed": true,
+      "start_sec": 0,
+      "end_sec": 30,
+      "expected_reps": 10,
+      "phases": []
+    },
+    {
+      "path": "videos/person-b-burpee.mp4",
+      "subject_id": "person-b",
+      "split": "validation",
+      "exercise": "burpee",
+      "license": "self-recorded, participant consent obtained",
+      "source_url": "self-recorded:session-b",
+      "single_person_confirmed": true,
+      "start_sec": 0,
+      "end_sec": 30,
+      "expected_reps": 5,
+      "phases": []
+    }
+  ]
+}
