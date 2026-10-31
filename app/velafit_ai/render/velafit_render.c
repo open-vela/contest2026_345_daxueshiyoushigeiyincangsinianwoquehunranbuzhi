@@ -41,7 +41,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define KPT_CONF_THRESHOLD 0.25f
+#define KPT_CONF_THRESHOLD VELAFIT_KPT_CONF_THRESHOLD
 
 #ifndef M_PI
 #  define M_PI 3.14159265358979323846
@@ -666,6 +666,87 @@ void velafit_render_sc2336_skeleton(velafit_canvas_t *canvas,
         {display.kpts[i].x=x/canvas->width;display.kpts[i].y=y/canvas->height;}
     }
   velafit_render_skeleton(canvas,&display,quality_flags);
+}
+
+/* TinyPose consumes the 96x96 letterboxed image that the demo page shows
+ * verbatim inside the preview band. Map model-normalized points through the
+ * same CCW90 rotation used by sc2336_model_preview_blit_rect_ccw_rgb565():
+ *   framebuffer_x = x0 + model_y * w
+ *   framebuffer_y = y0 + (95 - model_x * 96) * h / 96
+ * Only the eight keypoints the model actually predicts are kept; everything
+ * else is zeroed so no invented joint or limb is drawn. This is a pure
+ * display transform: the pose, counters and model input stay untouched.
+ */
+
+#define VF_MODEL_PREVIEW_SIDE 96
+
+void velafit_render_model_skeleton(velafit_canvas_t *canvas,
+                                   const pose_frame_t *pose,
+                                   uint16_t x0,uint16_t y0,
+                                   uint16_t w,uint16_t h)
+{
+  static const uint8_t model_kpts[8] =
+    {
+      KPT_LEFT_SHOULDER, KPT_RIGHT_SHOULDER,
+      KPT_LEFT_HIP, KPT_RIGHT_HIP,
+      KPT_LEFT_KNEE, KPT_RIGHT_KNEE,
+      KPT_LEFT_ANKLE, KPT_RIGHT_ANKLE
+    };
+  pose_frame_t display;
+  bool allowed[VELAFIT_NUM_KEYPOINTS];
+  int i;
+
+  if (canvas == NULL || pose == NULL || !canvas->width ||
+      !canvas->height || w == 0 || h == 0)
+    {
+      return;
+    }
+
+  memset(allowed, 0, sizeof(allowed));
+  for (i = 0; i < 8; i++)
+    {
+      allowed[model_kpts[i]] = true;
+    }
+
+  display = *pose;
+
+  /* The pose-level valid flag means "all eight joints tracked well enough for
+   * the counters" (>=6 of 8 above 0.30).  That is a training judgement, not a
+   * drawing one: the overlay must still show the joints the model did return,
+   * and velafit_render_skeleton() already drops every point and limb whose
+   * own score is below the confidence threshold. */
+  display.valid = true;
+  for (i = 0; i < VELAFIT_NUM_KEYPOINTS; i++)
+    {
+      float mx;
+      float my;
+
+      if (!allowed[i] || !isfinite(pose->kpts[i].x) ||
+          !isfinite(pose->kpts[i].y))
+        {
+          display.kpts[i].x = 0.0f;
+          display.kpts[i].y = 0.0f;
+          display.kpts[i].score = 0.0f;
+          continue;
+        }
+
+      mx = pose->kpts[i].x;
+      my = pose->kpts[i].y;
+      if (mx < 0.0f || mx > 1.0f || my < 0.0f || my > 1.0f)
+        {
+          display.kpts[i].x = 0.0f;
+          display.kpts[i].y = 0.0f;
+          display.kpts[i].score = 0.0f;
+          continue;
+        }
+
+      display.kpts[i].x = ((float)x0 + my * (float)w) / (float)canvas->width;
+      display.kpts[i].y = ((float)y0 +
+        ((float)(VF_MODEL_PREVIEW_SIDE - 1) - mx * VF_MODEL_PREVIEW_SIDE) *
+        (float)h / VF_MODEL_PREVIEW_SIDE) / (float)canvas->height;
+    }
+
+  velafit_render_skeleton(canvas, &display, 0);
 }
 
 void velafit_render_skeleton(velafit_canvas_t *canvas,

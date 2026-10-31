@@ -13,6 +13,7 @@ struct vf_pose_worker
   pthread_mutex_t lock;
   pthread_cond_t ready;
   bool stop,pending,valid,busy;
+  bool inline_mode;
   uint64_t pending_ms,result_ms;
   uint8_t next[RGB_BYTES],work[RGB_BYTES];
   pose_frame_t result;
@@ -99,9 +100,45 @@ struct vf_pose_worker *vf_pose_worker_start(vf_pose_inference infer,void *ctx)
     {pthread_cond_destroy(&s->ready);pthread_mutex_destroy(&s->lock);free(s);return NULL;}
   return s;
 }
+static int run_inline(struct vf_pose_worker *s,const uint8_t *rgb,uint64_t ms)
+{
+  pose_frame_t pose={0};
+  uint64_t elapsed,start;
+  int ret;
+
+  pthread_mutex_lock(&s->lock);
+  if(s->stop) {pthread_mutex_unlock(&s->lock);return -ESHUTDOWN;}
+  if(s->pending && ms<s->pending_ms)
+    {pthread_mutex_unlock(&s->lock);return -ESTALE;}
+  ++s->stats.submitted;
+  if(s->pending) ++s->stats.replaced;
+  memcpy(s->next,rgb,RGB_BYTES);
+  s->pending_ms=ms;s->pending=false;
+  pthread_mutex_unlock(&s->lock);
+
+  start=clock_ms();
+  ret=s->infer(s->ctx,s->next,&pose);
+  elapsed=clock_ms()-start;
+
+  pthread_mutex_lock(&s->lock);
+  ++s->stats.completed;
+  if(elapsed>s->stats.max_inference_ms) s->stats.max_inference_ms=elapsed;
+  if(ret==-ENODATA) ++s->stats.empty;
+  else if(ret) ++s->stats.errors;
+  s->valid=ret==0;
+  if(!ret)
+    {
+      pose.timestamp_ms=(uint32_t)ms;
+      s->result=pose;s->result_ms=ms;
+    }
+  pthread_mutex_unlock(&s->lock);
+  return 0;
+}
+
 int vf_pose_worker_publish(struct vf_pose_worker *s,const uint8_t *rgb,uint64_t ms)
 {
   if(!s || !rgb) return -EINVAL;
+  if(s->inline_mode) return run_inline(s,rgb,ms);
   /* No wait for inference: lock covers only mailbox copies and metadata. */
   int ret=pthread_mutex_trylock(&s->lock);
   if(ret) return -ret;
@@ -132,6 +169,14 @@ int vf_pose_worker_wait(struct vf_pose_worker *s,uint32_t timeout_ms)
       waited+=5;
     }
 }
+void vf_pose_worker_set_inline(struct vf_pose_worker *s,bool inline_mode)
+{
+  if(!s) return;
+  pthread_mutex_lock(&s->lock);
+  s->inline_mode=inline_mode;
+  pthread_mutex_unlock(&s->lock);
+}
+
 int vf_pose_worker_latest(struct vf_pose_worker *s,uint64_t now,uint32_t age,
                           pose_frame_t *out,struct vf_pose_worker_stats *stats)
 {

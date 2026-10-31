@@ -17,4 +17,16 @@ int sc2336_model_preview_blit_ccw_rgb565(const uint8_t *rgb96,
                                          uint16_t stride,
                                          uint8_t scale);
 
+int sc2336_model_preview_blit_rect_ccw_rgb565(const uint8_t *rgb96,
+                                              size_t rgb96_len,
+                                              uint16_t *framebuffer,
+                                              size_t framebuffer_len,
+                                              uint16_t width,
+                                              uint16_t height,
+                                              uint16_t stride,
+                                              uint16_t dst_x,
+                                              uint16_t dst_y,
+                                              uint16_t dst_w,
+                                              uint16_t dst_h);
+
 #endif

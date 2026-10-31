@@ -37,6 +37,10 @@
 #define VF_UI_COUNT_Y0        120
 #define VF_UI_COUNT_Y1        480
 
+/* Live camera band for the training page (square, vertically centered). */
+#define VF_UI_PREVIEW_Y0      48
+#define VF_UI_PREVIEW_Y1      552
+
 /* Palette: dark neutral background, one accent, warn/error as exceptions. */
 
 #define VF_UI_BG              VELAFIT_COLOR_RGB(13, 15, 19)

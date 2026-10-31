@@ -191,6 +191,17 @@ void velafit_render_skeleton(velafit_canvas_t *canvas,
                              const pose_frame_t *pose,
                              uint32_t quality_flags);
 
+/* Minimum per-keypoint score for a point or limb to be drawn. */
+#define VELAFIT_KPT_CONF_THRESHOLD 0.25f
+
+/* TinyPose 96x96 model image -> preview band (x0,y0,w,h) skeleton overlay.
+ * Keeps only the eight predicted keypoints and hides anything out of range.
+ */
+void velafit_render_model_skeleton(velafit_canvas_t *canvas,
+                                   const pose_frame_t *pose,
+                                   uint16_t x0,uint16_t y0,
+                                   uint16_t w,uint16_t h);
+
 void velafit_render_guidance(velafit_canvas_t *canvas,
                              const pose_frame_t *pose,
                              uint32_t quality_flags,
