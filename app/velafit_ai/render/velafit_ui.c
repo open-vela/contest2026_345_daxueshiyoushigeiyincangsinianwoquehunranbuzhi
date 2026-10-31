@@ -130,6 +130,44 @@ static uint32_t ui_count_scale(uint32_t count)
   return VF_UI_COUNT_SCALE_1;
 }
 
+/* 11x10 heart mask, one bit per pixel, bit 0 is the leftmost column and row 0
+ * is the top. Static storage: pulsing only changes the integer scale, so no
+ * frame allocates anything. */
+
+static const uint16_t ui_heart_rows[10] =
+{
+  0x0306, 0x078f, 0x07df, 0x07ff, 0x07ff,
+  0x03fe, 0x01fc, 0x00f8, 0x0070, 0x0020
+};
+
+/* Draw the heart upright on the portrait panel. The framebuffer is rotated, so
+ * a bitmap column advances along -fb_y and a bitmap row advances along +fb_x;
+ * this is the same mapping velafit_draw_string uses for glyphs. */
+
+static void ui_draw_heart(velafit_canvas_t *canvas, int cx, int cy,
+                          int scale, velafit_color_t fg)
+{
+  const int w = 11;
+  const int h = 10;
+  int x0 = cx - (h * scale) / 2;
+  int y0 = cy - (w * scale) / 2;
+  int sx;
+  int sy;
+
+  for (sy = 0; sy < h; sy++)
+    {
+      for (sx = 0; sx < w; sx++)
+        {
+          if ((ui_heart_rows[sy] & (1u << sx)) != 0)
+            {
+              velafit_draw_rect_filled(canvas, x0 + sy * scale,
+                                       y0 + (w - 1 - sx) * scale,
+                                       scale, scale, fg);
+            }
+        }
+    }
+}
+
 /****************************************************************************
  * Private Page Parts
  ****************************************************************************/
@@ -257,6 +295,36 @@ static void ui_draw_count_zone(velafit_canvas_t *canvas,
                (unsigned long)(snapshot->elapsed_sec % 60));
       ui_draw_center(canvas, 858, 300, line, VF_UI_TEXT_DIM, VF_UI_PANEL,
                      VF_UI_BODY_SCALE);
+    }
+
+  /* Decorative heartbeat. Real mode shows only the shape, never a number:
+   * there is no verified heart-rate source on this product. The two peak
+   * steps grow the mask by one pixel per cell, which is a motion cue rather
+   * than a medical claim. */
+
+  if (snapshot->heart_visible)
+    {
+      int beat = 0;
+
+      if (snapshot->heart_anim &&
+          (snapshot->heart_phase == 0 || snapshot->heart_phase == 4))
+        {
+          beat = 1;
+        }
+
+      ui_draw_heart(canvas, 584, 160, 3 + beat, VF_UI_HEART);
+    }
+
+  /* UI demo only: the simulated rate stays permanently labelled next to the
+   * number (and the band keeps its DEMO tag). Nothing consumes this value. */
+
+  if (snapshot->sim_hr_valid && snapshot->demo_data)
+    {
+      ui_draw_center(canvas, 616, 160, "SIM HR", VF_UI_WARN, VF_UI_PANEL,
+                     VF_UI_BODY_SCALE);
+      snprintf(line, sizeof(line), "%lu",
+               (unsigned long)snapshot->sim_hr_bpm);
+      ui_draw_center(canvas, 662, 160, line, VF_UI_WARN, VF_UI_PANEL, 4);
     }
 }
 
