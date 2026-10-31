@@ -248,6 +248,16 @@ static void ui_draw_count_zone(velafit_canvas_t *canvas,
       ui_draw_center(canvas, 815, 300, line, VF_UI_ACCENT, VF_UI_PANEL,
                      VF_UI_BODY_SCALE);
     }
+
+  /* Live duration while the set is running; hidden when it is not measured. */
+  if (snapshot->elapsed_valid)
+    {
+      snprintf(line, sizeof(line), "%02lu:%02lu",
+               (unsigned long)(snapshot->elapsed_sec / 60),
+               (unsigned long)(snapshot->elapsed_sec % 60));
+      ui_draw_center(canvas, 858, 300, line, VF_UI_TEXT_DIM, VF_UI_PANEL,
+                     VF_UI_BODY_SCALE);
+    }
 }
 
 /****************************************************************************
