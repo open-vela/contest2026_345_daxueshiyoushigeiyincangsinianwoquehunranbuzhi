@@ -32,6 +32,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1346,6 +1347,8 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
                                   "STEP INTO FRAME");
           snap.hint_tone = tracking ? VELAFIT_UI_TONE_NORMAL :
                                       VELAFIT_UI_TONE_WARN;
+          snap.elapsed_valid = true;
+          snap.elapsed_sec = (uint32_t)(session->active_ms / 1000);
         }
         break;
 
@@ -1368,6 +1371,307 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
   velafit_ui_render(canvas, &snap);
 }
 
+/* Begin a fresh set after the summary page.  Every counter and the standing
+ * baseline belong to the finished set, so they are dropped; the session
+ * generation changes so a stale pose or cue cannot leak into the new set. */
+static int velafit_demo_restart(velafit_session_t *session,
+                                squat_fsm_adaptive_t *tracker,
+                                squat_fsm_t *squat,
+                                velafit_body_check_t *body,
+                                velafit_body_check_result_t *body_result,
+                                bool *running_initialized, bool *tracking,
+                                uint64_t now_ms)
+{
+  uint32_t generation;
+  int ret;
+
+  /* init() clears the generation, but the new set needs a higher number than
+   * the finished one so stale poses / cues can be rejected by session id. */
+  generation = session->generation;
+  velafit_session_init(session);
+  ret = velafit_session_event(session, VELAFIT_VOICE_WAKE, now_ms);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  session->generation = generation + 1;
+
+  squat_fsm_adaptive_init(tracker);
+  *squat = tracker->fsm;
+  velafit_body_check_init(body, NULL);
+  memset(body_result, 0, sizeof(*body_result));
+  body_result->status = BODY_CHECK_LOW_CONFIDENCE;
+  body_result->orientation = BODY_ORIENTATION_LOW_CONFIDENCE;
+  *running_initialized = false;
+  *tracking = false;
+  return 0;
+}
+
+/* Deterministic product-loop test.  It drives the same session transitions
+ * the camera loop drives, without a camera or a person, so the closed loop
+ * (three sets, early stop, restart) can be regression tested on the bench. */
+static int velafit_demo_selftest(void)
+{
+  velafit_session_t session;
+  squat_fsm_adaptive_t tracker;
+  squat_fsm_t squat;
+  velafit_body_check_t body;
+  velafit_body_check_result_t body_result;
+  bool running_initialized;
+  bool tracking;
+  uint64_t base;
+  unsigned int total = 0;
+  unsigned int set;
+  int failures = 0;
+  int ret;
+
+#define VF_ST(id,cond) \
+  do \
+    { \
+      ++total; \
+      if (cond) \
+        { \
+          printf("[VELAFIT] SELFTEST PASS %s\n", id); \
+        } \
+      else \
+        { \
+          printf("[VELAFIT] SELFTEST FAIL %s\n", id); \
+          ++failures; \
+        } \
+    } \
+  while (0)
+
+  velafit_session_init(&session);
+  running_initialized = false;
+  tracking = true;
+  VF_ST("init_idle", session.state == VF_IDLE && session.generation == 0);
+
+  ret = velafit_session_event(&session, VELAFIT_VOICE_WAKE, 100);
+  VF_ST("wake_body_check", ret == 0 && session.state == VF_BODY_CHECK &&
+        session.generation == 1 && session.awake);
+
+  ret = velafit_session_event(&session, VELAFIT_VOICE_WAKE, 200);
+  VF_ST("wake_not_restart", ret == -EALREADY &&
+        session.state == VF_BODY_CHECK && session.generation == 1);
+
+  ret = velafit_session_body_ready(&session, 1000, 750);
+  VF_ST("body_ready", ret == 0 && session.state == VF_READY &&
+        session.ready_end_ms == 1750);
+
+  (void)velafit_session_tick(&session, 1749);
+  VF_ST("ready_holds", session.state == VF_READY);
+  (void)velafit_session_tick(&session, 1750);
+  VF_ST("countdown_starts", session.state == VF_COUNTDOWN &&
+        session.countdown_end_ms == 4750);
+  (void)velafit_session_tick(&session, 4749);
+  VF_ST("countdown_holds", session.state == VF_COUNTDOWN);
+  (void)velafit_session_tick(&session, 4750);
+  VF_ST("running_starts", session.state == VF_RUNNING);
+  (void)velafit_session_tick(&session, 5750);
+  VF_ST("active_clock", session.active_ms == 1000);
+
+  ret = velafit_session_finish(&session, 6000);
+  VF_ST("finish", ret == 0 && session.state == VF_FINISHED &&
+        session.active_ms == 1250);
+
+  ret = velafit_session_tick(&session, 5900);
+  VF_ST("clock_monotonic", ret == -ERANGE);
+
+  ret = velafit_demo_restart(&session, &tracker, &squat, &body, &body_result,
+                             &running_initialized, &tracking, 6000);
+  VF_ST("restart_resets", ret == 0 && session.state == VF_BODY_CHECK &&
+        session.generation == 2 && squat.total_reps == 0 &&
+        !running_initialized && !tracking);
+
+  /* Three consecutive sets through the same path the camera loop uses. */
+  base = 6000;
+  for (set = 1; set <= 3; set++)
+    {
+      unsigned int generation = session.generation;
+
+      ret = velafit_session_body_ready(&session, base, 750);
+      (void)velafit_session_tick(&session, base + 750);
+      (void)velafit_session_tick(&session, base + 3750);
+      (void)velafit_session_tick(&session, base + 4750);
+      ret = velafit_session_finish(&session, base + 4750);
+      VF_ST("set_finish", ret == 0 && session.state == VF_FINISHED &&
+            session.active_ms == 1000);
+      ret = velafit_demo_restart(&session, &tracker, &squat, &body,
+                                 &body_result, &running_initialized,
+                                 &tracking, base + 4750);
+      VF_ST("set_restart", ret == 0 && session.state == VF_BODY_CHECK &&
+            session.generation == generation + 1);
+      base += 4750;
+    }
+
+  /* Early stop with no completed rep must still reach the summary. */
+  velafit_session_init(&session);
+  VF_ST("stop_idle_rejected",
+        velafit_session_event(&session, VELAFIT_VOICE_STOP, 0) == -EAGAIN);
+  (void)velafit_session_event(&session, VELAFIT_VOICE_WAKE, 100);
+  ret = velafit_session_event(&session, VELAFIT_VOICE_STOP, 200);
+  VF_ST("stop_without_reps", ret == 0 && session.state == VF_FINISHED &&
+        session.active_ms == 0);
+
+  printf("[VELAFIT] DEMO SELFTEST checks=%u failed=%d result=%s\n", total,
+         failures, failures == 0 ? "PASS" : "FAIL");
+  fflush(stdout);
+#undef VF_ST
+  return failures == 0 ? 0 : -EIO;
+}
+
+/* Synthetic keypoints for the bench counter test.  Only the knee angle
+ * changes; the model-space geometry is otherwise a standing figure. */
+static void velafit_demo_synth_pose(pose_frame_t *pose, uint32_t t_ms,
+                                    float knee_angle)
+{
+  static const uint8_t kpts[8] =
+    {
+      KPT_LEFT_SHOULDER, KPT_RIGHT_SHOULDER, KPT_LEFT_HIP, KPT_RIGHT_HIP,
+      KPT_LEFT_KNEE, KPT_RIGHT_KNEE, KPT_LEFT_ANKLE, KPT_RIGHT_ANKLE
+    };
+  const float leg = 0.18f;
+  float delta = (180.0f - knee_angle) * 3.14159265f / 180.0f;
+  float dx = leg * sinf(delta);
+  float dy = leg * cosf(delta);
+  int i;
+
+  memset(pose, 0, sizeof(*pose));
+  pose->valid = true;
+  pose->timestamp_ms = t_ms;
+  for (i = 0; i < 8; i++)
+    {
+      pose->kpts[kpts[i]].score = 0.9f;
+    }
+
+  pose->kpts[KPT_LEFT_SHOULDER].x = 0.32f;
+  pose->kpts[KPT_LEFT_SHOULDER].y = 0.30f;
+  pose->kpts[KPT_RIGHT_SHOULDER].x = 0.68f;
+  pose->kpts[KPT_RIGHT_SHOULDER].y = 0.30f;
+  pose->kpts[KPT_LEFT_HIP].x = 0.32f;
+  pose->kpts[KPT_LEFT_HIP].y = 0.50f;
+  pose->kpts[KPT_RIGHT_HIP].x = 0.68f;
+  pose->kpts[KPT_RIGHT_HIP].y = 0.50f;
+  pose->kpts[KPT_LEFT_KNEE].x = 0.32f;
+  pose->kpts[KPT_LEFT_KNEE].y = 0.62f;
+  pose->kpts[KPT_RIGHT_KNEE].x = 0.68f;
+  pose->kpts[KPT_RIGHT_KNEE].y = 0.62f;
+  pose->kpts[KPT_LEFT_ANKLE].x = 0.32f + dx;
+  pose->kpts[KPT_LEFT_ANKLE].y = 0.62f + dy;
+  pose->kpts[KPT_RIGHT_ANKLE].x = 0.68f - dx;
+  pose->kpts[KPT_RIGHT_ANKLE].y = 0.62f + dy;
+}
+
+/* Three consecutive sets driven by synthetic keypoints.  Body check is
+ * skipped, but READY -> COUNTDOWN -> RUNNING, the real squat FSM, finish and
+ * restart all run the same code the camera loop uses. */
+static int velafit_demo_dryrun(unsigned int target)
+{
+  velafit_session_t session;
+  squat_fsm_adaptive_t tracker;
+  squat_fsm_t squat;
+  velafit_body_check_t body;
+  velafit_body_check_result_t body_result;
+  pose_frame_t pose;
+  bool running_initialized = false;
+  bool tracking = false;
+  uint32_t t = 1000;
+  unsigned int set;
+  unsigned int rep;
+  unsigned int total = 0;
+  int failures = 0;
+  int ret;
+
+  if (target == 0 || target > 20)
+    {
+      target = 3;
+    }
+
+  velafit_session_init(&session);
+  ret = velafit_session_event(&session, VELAFIT_VOICE_WAKE, t);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  squat_fsm_adaptive_init(&tracker);
+  squat = tracker.fsm;
+  memset(&body_result, 0, sizeof(body_result));
+  body_result.status = BODY_CHECK_LOW_CONFIDENCE;
+  body_result.orientation = BODY_ORIENTATION_LOW_CONFIDENCE;
+
+  for (set = 1; set <= 3; set++)
+    {
+      uint32_t reps;
+      bool ok;
+
+      ret = velafit_session_body_ready(&session, t, 750);
+      t += 750;
+      (void)velafit_session_tick(&session, t);   /* -> COUNTDOWN */
+      t += 3000;
+      (void)velafit_session_tick(&session, t);   /* -> RUNNING */
+
+      squat_fsm_adaptive_begin_capture(&tracker);
+      squat = tracker.fsm;
+
+      /* One standing frame learns the session baseline. */
+      t += 100;
+      velafit_demo_synth_pose(&pose, t, 178.0f);
+      (void)squat_fsm_adaptive_update(&tracker, &pose, t, 0.2f);
+      squat = tracker.fsm;
+
+      for (rep = 0; rep < target; rep++)
+        {
+          t += 300;
+          velafit_demo_synth_pose(&pose, t, 160.0f);
+          (void)squat_fsm_adaptive_update(&tracker, &pose, t, 0.2f);
+          t += 300;
+          velafit_demo_synth_pose(&pose, t, 150.0f);
+          (void)squat_fsm_adaptive_update(&tracker, &pose, t, 0.2f);
+          t += 300;
+          velafit_demo_synth_pose(&pose, t, 166.0f);
+          (void)squat_fsm_adaptive_update(&tracker, &pose, t, 0.2f);
+          t += 300;
+          velafit_demo_synth_pose(&pose, t, 178.0f);
+          (void)squat_fsm_adaptive_update(&tracker, &pose, t, 0.2f);
+          squat = tracker.fsm;
+        }
+
+      reps = squat.total_reps;
+      ret = velafit_session_finish(&session, t);
+      ok = ret == 0 && session.state == VF_FINISHED && reps >= target;
+      ++total;
+      if (!ok)
+        {
+          ++failures;
+        }
+
+      printf("[VELAFIT] DRYRUN set=%u reps=%lu target=%u shallow=%lu "
+             "state=%s elapsed_ms=%llu result=%s\n",
+             set, (unsigned long)reps, target,
+             (unsigned long)squat.shallow_count,
+             velafit_session_state_name(session.state),
+             (unsigned long long)session.active_ms,
+             ok ? "PASS" : "FAIL");
+
+      ret = velafit_demo_restart(&session, &tracker, &squat, &body,
+                                 &body_result, &running_initialized,
+                                 &tracking, t + VF_UI_SUMMARY_HOLD_MS);
+      if (ret < 0)
+        {
+          ++failures;
+        }
+
+      t += VF_UI_SUMMARY_HOLD_MS;
+    }
+
+  printf("[VELAFIT] DEMO DRYRUN sets=%u target=%u failed=%d result=%s\n",
+         total, target, failures, failures == 0 ? "PASS" : "FAIL");
+  fflush(stdout);
+  return failures == 0 ? 0 : -EIO;
+}
+
 #endif
 #endif
 
@@ -1375,6 +1679,15 @@ static void velafit_demo_draw(velafit_canvas_t *canvas,
  * frame that actually rendered skeleton points.  Diagnostic only. */
 
 static bool g_demo_shot;
+
+/* Completed sets retained in RAM until the camera is shut down, because
+ * console TX can block while CSI and DSI are active. */
+#define VF_DEMO_MAX_SETS 8
+struct vf_demo_set_s
+{
+  uint32_t reps;
+  uint64_t elapsed_ms;
+};
 
 /* pose_mode: 0 camera only, 1 MoveNet, 2 TinyPose squat, 3 body check,
  * 4 exact final RGB96 model-input preview (no inference), 5 product demo.
@@ -1440,6 +1753,8 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
   bool demo_running_initialized=false;
   bool demo_tracking=false;
   uint64_t demo_session_start_ms=0,demo_finished_ms=0;
+  struct vf_demo_set_s demo_sets[VF_DEMO_MAX_SETS];
+  uint32_t demo_set_count=0;
   unsigned int demo_shot_visible=0;
   float demo_shot_kpts[8][2];
   float demo_shot_scores[8];
@@ -1701,6 +2016,21 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
               demo_session_start_ms=demo_now_ms;
               demo_running_initialized=true;
             }
+          if(demo_session.state==VF_FINISHED && demo_finished_ms != 0 &&
+             demo_now_ms - demo_finished_ms >= VF_UI_SUMMARY_HOLD_MS)
+            {
+              /* The summary has been readable for its full hold time.  Start
+               * the next set here instead of exiting, so three consecutive
+               * sets need no input at all. */
+              ret=velafit_demo_restart(&demo_session,&tiny_squat,&squat_fsm,
+                                       &body_check,&body_result,
+                                       &demo_running_initialized,&demo_tracking,
+                                       demo_now_ms);
+              if(ret<0) goto out;
+              demo_last_state=demo_session.state;
+              demo_session_start_ms=0;
+              demo_finished_ms=0;
+            }
         }
 
       if (!capture_active && t2 >= capture_started_us)
@@ -1912,6 +2242,35 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                               ret=velafit_session_finish(&demo_session,now_ms);
                               if(ret<0) goto out;
                               demo_finished_ms=now_ms;
+                              if(demo_set_count<VF_DEMO_MAX_SETS)
+                                {
+                                  demo_sets[demo_set_count].reps=
+                                    squat_fsm.total_reps;
+                                  demo_sets[demo_set_count].elapsed_ms=
+                                    now_ms>demo_session_start_ms ?
+                                    now_ms-demo_session_start_ms : 0;
+                                  ++demo_set_count;
+                                }
+                              if(summary!=NULL)
+                                {
+                                  summary->target_reps=demo_target;
+                                  summary->completed_reps=
+                                    squat_fsm.total_reps;
+                                  summary->form_warning_reps=
+                                    squat_fsm.total_reps>=
+                                    squat_fsm.valid_reps ?
+                                    squat_fsm.total_reps-
+                                    squat_fsm.valid_reps : 0;
+                                  summary->shallow_warning_reps=
+                                    squat_fsm.shallow_count;
+                                  summary->knee_caving_warning_reps=
+                                    squat_fsm.knee_caving_count;
+                                  summary->trunk_lean_warning_reps=
+                                    squat_fsm.trunk_lean_count;
+                                  summary->duration_sec=(unsigned int)
+                                    ((now_ms-demo_session_start_ms+999)/
+                                     1000);
+                                }
                               demo_last_state=demo_session.state;
                             }
                         }
@@ -1970,19 +2329,35 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
                                       worker_stats.max_inference_ms:1) : 0.0f,
                     0,velafit_body_check_user_message(body_result.status));
                 }
-              else if(pose_mode==5)
-                {
-                  velafit_demo_draw(&canvas,&demo_session,&body_result,
-                                    &squat_fsm,demo_target,demo_tracking,
-                                    preview_time_us()/1000,
-                                    demo_session_start_ms);
-                }
               ++pose_visible;
             }
           else if(ret==-ESTALE) ++pose_stale;
           else if(ret!=-EAGAIN && ret!=-EBUSY) goto out;
+          if(ret!=0 && pose_mode==5)
+            {
+              /* No fresh result this frame: stop claiming tracking, but keep
+               * drawing and counting.  latest() already expired the old pose,
+               * and the camera band is redrawn above, so no stale skeleton
+               * survives on screen. */
+              demo_tracking=false;
+            }
           ret=0;
           t2=preview_time_us();
+        }
+#endif
+#if defined(CONFIG_VELAFIT_POSE_BACKEND_TFLM) && defined(VELAFIT_TINY_POSE)
+      if (pose_mode == 5)
+        {
+          /* Redraw the page for every captured frame, with or without a fresh
+           * pose, so countdown digits, the live clock and the summary never
+           * freeze waiting for inference. */
+          velafit_canvas_t page_canvas;
+          velafit_canvas_init(&page_canvas, (uint8_t *)render_buffer,
+                              vinfo.xres, vinfo.yres,
+                              VELAFIT_PIXFMT_RGB565);
+          velafit_demo_draw(&page_canvas, &demo_session, &body_result,
+                            &squat_fsm, demo_target, demo_tracking,
+                            preview_time_us() / 1000, demo_session_start_ms);
         }
 #endif
       if (pose_mode == 2 || pose_mode == 3)
@@ -2054,8 +2429,6 @@ static int sc2336_run_lcd_preview(int fd, uint32_t duration_seconds,
         }
 
       clock_gettime(CLOCK_MONOTONIC, &now);
-      if(pose_mode==5 && demo_session.state==VF_FINISHED &&
-         preview_time_us()/1000-demo_finished_ms>=3000) break;
       if (pose_mode == 5 && g_demo_shot && demo_shot_visible >= 2 &&
           (uint32_t)(now.tv_sec - started.tv_sec) >= 3) break;
     }
@@ -2196,6 +2569,14 @@ out:
                  body_result.status==BODY_CHECK_READY ? "yes" : "no",
                  (unsigned long long)(demo_finished_ms>=demo_session_start_ms ?
                    demo_finished_ms-demo_session_start_ms:0));
+          printf("[VELAFIT] DEMO sets=%lu\n",
+                 (unsigned long)demo_set_count);
+          for (unsigned int s = 0; s < demo_set_count; s++)
+            {
+              printf("[VELAFIT] DEMO set=%u reps=%lu elapsed_ms=%llu\n",
+                     s + 1, (unsigned long)demo_sets[s].reps,
+                     (unsigned long long)demo_sets[s].elapsed_ms);
+            }
           if (summary != NULL && demo_session.state == VF_FINISHED)
             {
               summary->target_reps = demo_target;
@@ -2575,6 +2956,8 @@ static void show_usage(const char *progname)
   printf("  demo 3|5|20               Wake -> body check -> real squat demo\n");
   printf("  demo_now 3|5|20 [sec] [shot] Demo without KWS wake; shot dumps\n"
          "                             one live training page as PPM\n");
+  printf("  demo_selftest            Closed-loop test: 3 sets, restart, stop\n");
+  printf("  demo_dryrun [reps]       Synthetic 3 sets through the real counter\n");
   printf("  ui_page <page> [reps] [dump] [x y w h] U1 fixed page shot: "
          "idle|countdown|"
          "train0|train9|train10|train99|train100|trainlost|trainlong|"
@@ -2648,6 +3031,22 @@ static int sc2336_dispatch(int argc, char *argv[])
           printf("[VELAFIT] WAKE accepted; repeated wake disabled\n");
         }
     }
+
+#if defined(CONFIG_VELAFIT_POSE_BACKEND_TFLM) && defined(VELAFIT_TINY_POSE)
+  if (strcmp(cmd, "demo_selftest") == 0)
+    {
+      ret = velafit_demo_selftest();
+      return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+  if (strcmp(cmd, "demo_dryrun") == 0)
+    {
+      unsigned int target = argc > 2 ?
+                            (unsigned int)strtoul(argv[2], NULL, 0) : 3;
+      ret = velafit_demo_dryrun(target);
+      return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+#endif
 
 #ifdef CONFIG_ESP32P4_MIPI_DSI
   if (strcmp(cmd, "display-status") == 0)

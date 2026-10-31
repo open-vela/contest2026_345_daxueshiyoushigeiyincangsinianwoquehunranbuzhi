@@ -84,6 +84,8 @@
 #define VF_UI_HINT_MIN_MS     900
 #define VF_UI_GO_BANNER_MS    700
 #define VF_UI_COMPLETE_MS     1200
+/* Summary stays visible long enough to read before the next set starts. */
+#define VF_UI_SUMMARY_HOLD_MS 5000
 
 /* Capacity planning for the longest strings (prevents clipping by design) */
 #define VF_UI_HINT_MAX_CHARS    31
