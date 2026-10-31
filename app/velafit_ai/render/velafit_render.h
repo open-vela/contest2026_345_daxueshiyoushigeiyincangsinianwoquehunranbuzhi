@@ -175,6 +175,30 @@ void velafit_draw_string(velafit_canvas_t *canvas,
                          velafit_color_t bg,
                          int scale);
 
+/* Mixed ASCII/CJK line drawing. ASCII keeps the 5x7 glyphs, non-ASCII uses
+ * the 16x16 GB2312 table from velafit_font_cjk.c. Both are rasterized with
+ * the same CCW90 product rotation used by velafit_draw_string. Encoding is
+ * UTF-8; decoding never splits a multi-byte sequence. */
+#define VF_UTF8_CJK_ADV   16
+#define VF_UTF8_ASCII_ADV 6
+#define VF_UTF8_CELL_H    16
+
+bool velafit_font_cjk_lookup(uint32_t codepoint, uint16_t rows[16]);
+size_t velafit_font_cjk_count(void);
+
+/* Returns the number of bytes consumed (1..4) and the decoded codepoint.
+ * Invalid or truncated sequences yield U+FFFD and consume one byte. */
+int velafit_utf8_decode(const char *text, uint32_t *codepoint);
+int velafit_utf8_advance(uint32_t codepoint);
+int velafit_utf8_width(const char *text, int scale);
+int velafit_utf8_missing(const char *text);
+void velafit_draw_utf8(velafit_canvas_t *canvas,
+                       int x,
+                       int y,
+                       const char *text,
+                       velafit_color_t fg,
+                       int scale);
+
 /* Product mounting policy: strings are rasterized CCW90 in framebuffer
  * coordinates. This does not rotate camera preview or pose coordinates. */
 
