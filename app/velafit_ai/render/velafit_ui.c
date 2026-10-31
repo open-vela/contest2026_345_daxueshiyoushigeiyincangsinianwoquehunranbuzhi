@@ -265,9 +265,9 @@ static void ui_draw_info_panel(velafit_canvas_t *canvas)
 }
 
 /* Main count zone. The zone is fixed so 9 -> 10 -> 100 never moves anything.
- * Rows (framebuffer X, band 600..900): title 632, number 706, target 768,
- * state 806, duration 844; the vitals row (heart + label) sits at 878 across
- * framebuffer Y 300..520. */
+ * Rows (framebuffer X, band 600..900): title 632, number 706, target 780,
+ * state/duration 828; the vitals row (heart + label) sits at 878. Rows are
+ * 48 px apart so a 32 px CJK line keeps clear leading inside the block. */
 
 static void ui_draw_count_zone(velafit_canvas_t *canvas,
                                const velafit_ui_snapshot_t *snapshot,
@@ -283,10 +283,12 @@ static void ui_draw_count_zone(velafit_canvas_t *canvas,
 
   if (snapshot->page == VELAFIT_UI_PAGE_TRAINING)
     {
-      ui_draw_fit_utf8(canvas, 806, 300,
+      /* Tracking sits on the target row, on the opposite side, so the two
+       * short facts share one line instead of crowding a whole row. */
+      ui_draw_fit_utf8(canvas, 780, 470,
                        snapshot->tracking ? "追踪中" : "未检测",
                        snapshot->tracking ? VF_UI_ACCENT : VF_UI_ERROR,
-                       VF_UI_BODY_SCALE, 480);
+                       VF_UI_BODY_SCALE, 220);
     }
 
   if (snapshot->demo_data)
@@ -309,17 +311,17 @@ static void ui_draw_count_zone(velafit_canvas_t *canvas,
       ui_draw_center(canvas, 706, 300, line,
                      snapshot->tracking ? VF_UI_TEXT : VF_UI_TEXT_DIM,
                      VF_UI_PANEL, (int)scale);
-      ui_draw_fit_utf8(canvas, 706, 400, "次数", VF_UI_TEXT_DIM,
+      ui_draw_fit_utf8(canvas, 706, 180, "次数", VF_UI_TEXT_DIM,
                        VF_UI_BODY_SCALE, 112);
     }
 
   snprintf(line, sizeof(line), "目标 %lu 次", (unsigned long)snapshot->target);
-  ui_draw_fit_utf8(canvas, 768, 300, line, VF_UI_TEXT_DIM,
+  ui_draw_fit_utf8(canvas, 780, 300, line, VF_UI_TEXT_DIM,
                    VF_UI_BODY_SCALE, 480);
 
   if (snapshot->state_label != NULL && snapshot->state_label[0] != '\0')
     {
-      ui_draw_fit_utf8(canvas, 806, 300, snapshot->state_label, VF_UI_ACCENT,
+      ui_draw_fit_utf8(canvas, 828, 300, snapshot->state_label, VF_UI_ACCENT,
                        VF_UI_BODY_SCALE, 480);
     }
 
@@ -329,7 +331,7 @@ static void ui_draw_count_zone(velafit_canvas_t *canvas,
       snprintf(line, sizeof(line), "%02lu:%02lu",
                (unsigned long)(snapshot->elapsed_sec / 60),
                (unsigned long)(snapshot->elapsed_sec % 60));
-      ui_draw_center(canvas, 844, 300, line, VF_UI_TEXT_DIM, VF_UI_PANEL,
+      ui_draw_center(canvas, 828, 470, line, VF_UI_TEXT_DIM, VF_UI_PANEL,
                      VF_UI_BODY_SCALE);
     }
 
@@ -409,11 +411,11 @@ static void ui_page_summary(velafit_canvas_t *canvas,
   snprintf(line, sizeof(line), "%lu", (unsigned long)snapshot->reps);
   ui_draw_center(canvas, 706, 300, line, VF_UI_TEXT, VF_UI_PANEL,
                  VF_UI_SUMMARY_SCALE);
-  ui_draw_fit_utf8(canvas, 706, 400, "次数", VF_UI_TEXT_DIM,
+  ui_draw_fit_utf8(canvas, 706, 180, "次数", VF_UI_TEXT_DIM,
                    VF_UI_BODY_SCALE, 112);
 
   snprintf(line, sizeof(line), "目标 %lu 次", (unsigned long)snapshot->target);
-  ui_draw_fit_utf8(canvas, 768, 300, line, VF_UI_TEXT,
+  ui_draw_fit_utf8(canvas, 780, 300, line, VF_UI_TEXT,
                    VF_UI_BODY_SCALE, 480);
 
   if (snapshot->elapsed_valid)
@@ -421,8 +423,8 @@ static void ui_page_summary(velafit_canvas_t *canvas,
       snprintf(line, sizeof(line), "时长 %02lu:%02lu",
                (unsigned long)(snapshot->elapsed_sec / 60),
                (unsigned long)(snapshot->elapsed_sec % 60));
-      ui_draw_fit_utf8(canvas, 806, 300, line, VF_UI_TEXT,
-                       VF_UI_BODY_SCALE, 480);
+      ui_draw_fit_utf8(canvas, 780, 470, line, VF_UI_TEXT,
+                       VF_UI_BODY_SCALE, 260);
     }
 
   /* Fields that were not reliably produced stay hidden, never shown as 0. */
@@ -430,7 +432,7 @@ static void ui_page_summary(velafit_canvas_t *canvas,
     {
       snprintf(line, sizeof(line), "标准 %lu 次",
                (unsigned long)snapshot->good_reps);
-      ui_draw_fit_utf8(canvas, 844, 180, line, VF_UI_ACCENT,
+      ui_draw_fit_utf8(canvas, 836, 270, line, VF_UI_ACCENT,
                        VF_UI_BODY_SCALE, 260);
     }
 
@@ -438,7 +440,7 @@ static void ui_page_summary(velafit_canvas_t *canvas,
     {
       snprintf(line, sizeof(line), "姿势警告 %lu 次",
                (unsigned long)snapshot->warn_reps);
-      ui_draw_fit_utf8(canvas, 844, snapshot->good_valid ? 440 : 300, line,
+      ui_draw_fit_utf8(canvas, 836, 470, line,
                        snapshot->warn_reps > 0 ? VF_UI_WARN : VF_UI_TEXT_DIM,
                        VF_UI_BODY_SCALE, 280);
     }
