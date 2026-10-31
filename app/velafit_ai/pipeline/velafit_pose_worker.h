@@ -10,6 +10,7 @@ struct vf_pose_worker_stats
 {
   uint32_t submitted, replaced, completed, errors, empty;
   uint64_t max_inference_ms;
+  uint64_t last_inference_ms;
 };
 /* At most one pending RGB192 frame and one running frame; publication copies
  * data before returning. Inference callback must return (no forced cancellation).

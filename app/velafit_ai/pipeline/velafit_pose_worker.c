@@ -45,6 +45,7 @@ static void *run(void *arg)
       uint64_t elapsed=clock_ms()-start;
       pthread_mutex_lock(&s->lock);
       ++s->stats.completed;
+      s->stats.last_inference_ms=elapsed;
       if(elapsed>s->stats.max_inference_ms) s->stats.max_inference_ms=elapsed;
       if(ret==-ENODATA) ++s->stats.empty;
       else if(ret) ++s->stats.errors;
@@ -122,6 +123,7 @@ static int run_inline(struct vf_pose_worker *s,const uint8_t *rgb,uint64_t ms)
 
   pthread_mutex_lock(&s->lock);
   ++s->stats.completed;
+  s->stats.last_inference_ms=elapsed;
   if(elapsed>s->stats.max_inference_ms) s->stats.max_inference_ms=elapsed;
   if(ret==-ENODATA) ++s->stats.empty;
   else if(ret) ++s->stats.errors;
