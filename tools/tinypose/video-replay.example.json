@@ -1,0 +1,21 @@
+{
+  "clips": [
+    {
+      "path": "videos/person-a-squat-normal.mp4",
+      "subject_id": "person-a",
+      "split": "holdout",
+      "exercise": "squat",
+      "license": "self-recorded, participant consent obtained",
+      "source_url": "self-recorded:person-a-session-1",
+      "single_person_confirmed": true,
+      "lighting": "normal",
+      "rotation": 0,
+      "start_sec": 0,
+      "end_sec": null,
+      "warmup_sec": 2,
+      "expected_reps": null,
+      "events_reviewed": false,
+      "events": []
+    }
+  ]
+}
