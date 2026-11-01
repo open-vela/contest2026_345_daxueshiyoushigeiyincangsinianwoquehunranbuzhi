@@ -11,6 +11,7 @@
 #include <nuttx/config.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <syslog.h>
 #include <unistd.h>
 
@@ -42,6 +43,7 @@ extern int velafit_demo_main(int argc, char *argv[]);
 static int velafit_kiosk_entry(int argc, char *argv[])
 {
   int fd = open("/dev/console", O_RDWR);
+  int ret;
 
   if (fd >= 0)
     {
@@ -54,7 +56,28 @@ static int velafit_kiosk_entry(int argc, char *argv[])
         }
     }
 
-  return velafit_demo_main(argc, argv);
+  /* The demo must never depend on console transmit.  USB Serial/JTAG only
+   * drains while a host is reading, so the serial layer bounds every TX
+   * buffer wait; a stalled console can only cost one short wait per write. */
+
+  /* The panel belongs to this thread for the whole power cycle.  A single
+   * failed start (sensor not settled, transient DMA fault) must not leave
+   * the board frozen on its last frame, so the demo is re-entered until it
+   * reports a clean exit on its own duration. */
+
+  for (;;)
+    {
+      ret = velafit_demo_main(argc, argv);
+      if (ret == 0)
+        {
+          break;
+        }
+
+      syslog(LOG_ERR, "ERROR: VelaFit demo aborted: %d, retrying\n", ret);
+      sleep(3);
+    }
+
+  return ret;
 }
 #endif
 
